@@ -1,0 +1,43 @@
+{
+  "os": "macOS-15.5-arm64-arm-64bit",
+  "python": "CPython 3.10.5",
+  "startedAt": "2025-05-26T20:32:54.181311Z",
+  "program": "/Users/bohdan.turbal/Desktop/dimploma_thesis/gym-pybullet-drones/gym_pybullet_drones/examples/learn_multi.py",
+  "codePath": "gym_pybullet_drones/examples/learn_multi.py",
+  "git": {
+    "remote": "https://github.com/BogdanTurbal/gym-pybullet-drones.git",
+    "commit": "722188528b51cc39c5b79dbf3517340d8a8d031c"
+  },
+  "email": "bogdan.turbal.y@gmail.com",
+  "root": "/Users/bohdan.turbal/Desktop/dimploma_thesis/gym-pybullet-drones/gym_pybullet_drones/examples",
+  "host": "BTurbalPro14.local",
+  "executable": "/Users/bohdan.turbal/Desktop/dimploma_thesis/.conda/bin/python",
+  "codePathLocal": "learn_multi.py",
+  "cpu_count": 12,
+  "cpu_count_logical": 12,
+  "disk": {
+    "/": {
+      "total": "994662584320",
+      "used": "813154656256"
+    },
+    "/System/Volumes/Data": {
+      "total": "994662584320",
+      "used": "813154656256"
+    }
+  },
+  "memory": {
+    "total": "34359738368"
+  },
+  "cpu": {
+    "count": 12,
+    "countLogical": 12
+  },
+  "apple": {
+    "name": "Apple M2 Max",
+    "ecpuCores": 4,
+    "pcpuCores": 8,
+    "gpuCores": 30,
+    "memoryGb": 32,
+    "ramTotalBytes": "34359738368"
+  }
+}

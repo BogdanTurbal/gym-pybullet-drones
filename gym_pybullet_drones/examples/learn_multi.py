@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-train_multi_improved.py: Train a multi-drone swarm with improved target-following behavior
-Enhanced with comprehensive WandB logging and model weight pushing after evaluations
+Modified train_multi_improved.py with custom multi-agent architecture
 """
 import os
 import time
@@ -18,27 +17,37 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.monitor import Monitor
 from wandb.integration.sb3 import WandbCallback
 
+# Import your custom extractors (put the previous artifact code in a file called multi_agent_extractors.py)
+from multi_agent_extractors import (
+    MultiAgentSelfAttentionExtractor,
+    MultiAgentMeanPoolExtractor, 
+    MultiAgentDeepsetsExtractor,
+    create_multiagent_ppo_model
+)
+
 from gym_pybullet_drones.envs.HoverAviary import HoverAviary
-from gym_pybullet_drones.envs.MultiTargetAviary import MultiTargetAviary  # Your improved environment
+from gym_pybullet_drones.envs.MultiTargetAviary import MultiTargetAviary
 from gym_pybullet_drones.utils.Logger import Logger
 from gym_pybullet_drones.utils.utils import sync, str2bool
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 
-# Default settings
+# Default settings - same as before
 DEFAULT_GUI           = True
 DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'results'
-DEFAULT_OBS           = ObservationType('kin')   # 'kin' or 'rgb'
-DEFAULT_ACT           = ActionType('one_d_rpm')  # 'rpm','pid','vel','one_d_rpm','one_d_pid'
+DEFAULT_OBS           = ObservationType('kin')
+DEFAULT_ACT           = ActionType('rpm')
 DEFAULT_DRONES        = 4
-DEFAULT_DURATION_SEC  = 5.0  # seconds per target phase
-NUM_VEC = 8
+DEFAULT_DURATION_SEC  = 3.0
+NUM_VEC = 1
+
+# NEW: Multi-agent architecture settings
+DEFAULT_EXTRACTOR_TYPE = "attention"  # "attention", "meanpool", or "deepsets"
+DEFAULT_FEATURES_DIM = 256
 
 
 class EnhancedWandbCallback(BaseCallback):
-    """
-    Enhanced callback for comprehensive WandB logging of training metrics
-    """
+    """Enhanced callback - same as before"""
     def __init__(self, log_freq=100, verbose=0):
         super().__init__(verbose)
         self.log_freq = log_freq
@@ -48,16 +57,14 @@ class EnhancedWandbCallback(BaseCallback):
         self.current_episode_length = 0
         
     def _on_step(self) -> bool:
-        # Accumulate reward and length for current episode
+        # Same implementation as before...
         self.current_episode_reward += self.locals.get('rewards', [0])[0]
         self.current_episode_length += 1
         
-        # Check if episode is done
         if self.locals.get('dones', [False])[0]:
             self.episode_rewards.append(self.current_episode_reward)
             self.episode_lengths.append(self.current_episode_length)
             
-            # Log episode metrics
             wandb.log({
                 'train/episode_reward': self.current_episode_reward,
                 'train/episode_length': self.current_episode_length,
@@ -65,24 +72,19 @@ class EnhancedWandbCallback(BaseCallback):
                 'train/episodes_completed': len(self.episode_rewards),
             }, step=self.num_timesteps)
             
-            # Reset counters
             self.current_episode_reward = 0
             self.current_episode_length = 0
         
-        # Log detailed metrics every log_freq steps
         if self.n_calls % self.log_freq == 0:
-            # Get info from environment if available
             infos = self.locals.get('infos', [{}])
             if len(infos) > 0 and infos[0]:
                 info = infos[0]
                 
-                # Log environment-specific metrics
                 log_dict = {
                     'train/timestep': self.num_timesteps,
                     'train/current_reward': self.locals.get('rewards', [0])[0],
                 }
                 
-                # Add custom environment metrics if available
                 if 'phase' in info:
                     log_dict['train/current_phase'] = info['phase']
                 if 'targets_reached' in info:
@@ -96,7 +98,6 @@ class EnhancedWandbCallback(BaseCallback):
                 
                 wandb.log(log_dict, step=self.num_timesteps)
             
-            # Log policy metrics if available
             if hasattr(self.model, 'logger') and self.model.logger.name_to_value:
                 logger_dict = {}
                 for key, value in self.model.logger.name_to_value.items():
@@ -110,31 +111,21 @@ class EnhancedWandbCallback(BaseCallback):
 
 
 class DetailedEvalCallback(EvalCallback):
-    """Enhanced evaluation callback with detailed logging and model weight pushing"""
-    
+    """Enhanced evaluation callback - same as before"""
     def __init__(self, eval_env, save_freq_evals=1, push_to_wandb=True, **kwargs):
-        """
-        Parameters:
-        - save_freq_evals: Save and push model weights every N evaluations (default: 1 = every evaluation)
-        - push_to_wandb: Whether to push model weights to wandb as artifacts
-        """
         super().__init__(eval_env, **kwargs)
         self.save_freq_evals = save_freq_evals
         self.push_to_wandb = push_to_wandb
         self.eval_count = 0
         self.model_save_path = kwargs.get('best_model_save_path', './models')
-        
-        # Ensure model save directory exists
         os.makedirs(self.model_save_path, exist_ok=True)
         
     def _on_step(self) -> bool:
         result = super()._on_step()
         
-        # Check if evaluation occurred
         if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
             self.eval_count += 1
             
-            # Get the latest evaluation results
             if len(self.evaluations_results) > 0:
                 latest_results = self.evaluations_results[-1]
                 mean_reward = np.mean(latest_results)
@@ -142,7 +133,6 @@ class DetailedEvalCallback(EvalCallback):
                 min_reward = np.min(latest_results)
                 max_reward = np.max(latest_results)
                 
-                # Log evaluation metrics
                 wandb.log({
                     'eval/mean_reward': mean_reward,
                     'eval/std_reward': std_reward,
@@ -154,25 +144,20 @@ class DetailedEvalCallback(EvalCallback):
                 
                 print(f"[EVAL] Step {self.num_timesteps}: Mean={mean_reward:.2f}±{std_reward:.2f}, Range=[{min_reward:.2f}, {max_reward:.2f}]")
                 
-                # Save and push model weights at specified intervals
                 if self.eval_count % self.save_freq_evals == 0:
                     self._save_and_push_model(mean_reward)
         
         return result
     
     def _save_and_push_model(self, mean_reward):
-        """Save model weights and push to wandb"""
         try:
-            # Create timestamped model filename
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             model_filename = f"model_eval_{self.eval_count}_step_{self.num_timesteps}_reward_{mean_reward:.2f}_{timestamp}.zip"
             model_path = os.path.join(self.model_save_path, model_filename)
             
-            # Save the model
             self.model.save(model_path)
             print(f"[MODEL SAVE] Saved model to: {model_path}")
             
-            # Push to wandb as artifact if enabled
             if self.push_to_wandb:
                 self._push_to_wandb(model_path, model_filename, mean_reward)
                 
@@ -180,9 +165,7 @@ class DetailedEvalCallback(EvalCallback):
             print(f"[ERROR] Failed to save/push model: {e}")
     
     def _push_to_wandb(self, model_path, model_filename, mean_reward):
-        """Push model to wandb as artifact"""
         try:
-            # Create artifact with metadata
             artifact_name = f"model_eval_{self.eval_count}"
             artifact = wandb.Artifact(
                 artifact_name, 
@@ -191,20 +174,16 @@ class DetailedEvalCallback(EvalCallback):
                     'eval_count': self.eval_count,
                     'timestep': self.num_timesteps,
                     'mean_reward': mean_reward,
-                    'model_type': 'PPO',
+                    'model_type': 'PPO_MultiAgent',
                     'eval_timestamp': datetime.now().isoformat()
                 }
             )
             
-            # Add model file
             artifact.add_file(model_path, name=model_filename)
-            
-            # Log artifact to wandb
             wandb.log_artifact(artifact, aliases=[f"eval_{self.eval_count}", "latest_eval"])
             
             print(f"[WANDB] Pushed model artifact: {artifact_name}")
             
-            # Log model push event
             wandb.log({
                 'model_push/eval_count': self.eval_count,
                 'model_push/timestep': self.num_timesteps,
@@ -216,48 +195,28 @@ class DetailedEvalCallback(EvalCallback):
             print(f"[ERROR] Failed to push model to wandb: {e}")
 
 
-def create_target_sequence(num_drones=4, scale=0.5):
-    """Create a challenging but achievable target sequence"""
-    
+def create_target_sequence(num_drones=4, scale=1):
+    """Create target sequence - same as before"""
     if num_drones == 4:
-        # 4-drone formations
         targets = np.array([
-            # Phase 0: Square formation
-            [[ scale,  scale, 0.5], [-scale,  scale, 0.5], 
-             [-scale, -scale, 0.5], [ scale, -scale, 0.5]],
-            [[ scale,  scale, 0.5], [-scale,  scale, 0.5], 
-             [-scale, -scale, 0.5], [ scale, -scale, 0.5]],
-            [[ scale,  scale, 0.5], [-scale,  scale, 0.5], 
-             [-scale, -scale, 0.5], [ scale, -scale, 0.5]],
-            [[ scale,  scale, 0.5], [-scale,  scale, 0.5], 
-             [-scale, -scale, 0.5], [ scale, -scale, 0.5]],
-            
-            # # Phase 1: Rotate clockwise
-            # [[-scale,  scale, 0.5], [-scale, -scale, 0.5], 
-            #  [ scale, -scale, 0.5], [ scale,  scale, 0.5]],
-            
-            # # Phase 2: Diamond formation (higher altitude)
-            # [[ 0.0,  scale*1.2, 2.0], [-scale*1.2,  0.0, 2.0], 
-            #  [ 0.0, -scale*1.2, 2.0], [ scale*1.2,  0.0, 2.0]],
-            
-            # # Phase 3: Tight formation at center
-            # [[ 0.3,  0.3, 1.8], [-0.3,  0.3, 1.8], 
-            #  [-0.3, -0.3, 1.8], [ 0.3, -0.3, 1.8]],
-             
-            # # Phase 4: Line formation
-            # [[ 0.0,  scale, 0.5], [ 0.0,  scale/3, 0.5], 
-            #  [ 0.0, -scale/3, 0.5], [ 0.0, -scale, 0.5]]
+            [[ scale,  scale, 1], [-scale,  scale, 1], 
+             [-scale, -scale, 1], [ scale, -scale, 1]],
+            [[ scale,  scale, 1], [-scale,  scale, 1], 
+             [-scale, -scale, 1], [ scale, -scale, 1]],
+            [[ scale,  scale, 1], [-scale,  scale, 1], 
+             [-scale, -scale, 1], [ scale, -scale, 1]],
+            [[ scale,  scale, 1], [-scale,  scale, 1], 
+             [-scale, -scale, 1], [ scale, -scale, 1]],
         ])
     else:
-        # For other numbers of drones, create circular formations
         targets = []
         n_phases = 4
         for phase in range(n_phases):
             phase_targets = []
-            radius = scale * (1.0 + 0.2 * phase)  # Varying radius
-            height = 0.5 + 0.3 * phase  # Varying height
+            radius = scale * (1.0 + 0.2 * phase)
+            height = 1 + 0.3 * phase
             for i in range(num_drones):
-                angle = 2 * np.pi * i / num_drones + phase * np.pi / 4  # Rotate each phase
+                angle = 2 * np.pi * i / num_drones + phase * np.pi / 4
                 x = radius * np.cos(angle)
                 y = radius * np.sin(angle)
                 phase_targets.append([x, y, height])
@@ -267,60 +226,60 @@ def create_target_sequence(num_drones=4, scale=0.5):
     return targets.astype(np.float32)
 
 
-def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_entity, save_freq_evals):
-    # Initialize Weights & Biases with comprehensive config
-    run_name = f"multi_target_swarm_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_entity, 
+        save_freq_evals, extractor_type, features_dim):
+    """
+    Modified run function with multi-agent architecture support
+    """
+    run_name = f"multiagent_{extractor_type}_swarm_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     config = {
         'algo': 'PPO',
+        'architecture': 'MultiAgent',
+        'extractor_type': extractor_type,
+        'features_dim': features_dim,
         'num_drones': DEFAULT_DRONES,
         'obs_type': DEFAULT_OBS.name,
         'act_type': DEFAULT_ACT.name,
         'duration_sec': DEFAULT_DURATION_SEC,
-        'total_timesteps': int(1e6), #int(2e6) if local else int(1e5),
+        'total_timesteps': 100_000, #int(10e6),
         'learning_rate': 3e-4,
-        'batch_size': 64,
+        'batch_size': 128,
         'n_epochs': 10,
         'gamma': 0.99,
         'gae_lambda': 0.95,
         'n_steps': 2048,
         'clip_range': 0.2,
         'ent_coef': 0.01,
-        'eval_freq': 100000 // NUM_VEC,
+        'eval_freq': 25000 // NUM_VEC,
         'log_freq': 1000,
-        'save_freq_evals': save_freq_evals,  # New parameter
+        'save_freq_evals': save_freq_evals,
     }
     
-    # Initialize wandb with more detailed settings
     wandb.init(
         project=wandb_project,
         entity=wandb_entity,
         name=run_name,
         config=config,
-        sync_tensorboard=True,  # Also sync tensorboard logs
-        monitor_gym=True,       # Monitor gym environments
-        save_code=True,         # Save code for reproducibility
+        sync_tensorboard=True,
+        monitor_gym=True,
+        save_code=True,
     )
 
-    # Prepare output directory
     save_dir = os.path.join(output_folder, run_name)
     os.makedirs(save_dir, exist_ok=True)
 
-    # Get control frequency
     dummy_env = HoverAviary(obs=DEFAULT_OBS, act=DEFAULT_ACT)
     freq = int(dummy_env.CTRL_FREQ)
     dummy_env.close()
 
-    # Create target sequence
-    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=1.2)
+    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=1.0)
     steps_per_target = int(DEFAULT_DURATION_SEC * freq)
     
     print(f"[INFO] Created target sequence with shape: {target_sequence.shape}")
     print(f"[INFO] Steps per target: {steps_per_target}")
-    print(f"[INFO] Total episode length: {len(target_sequence) * steps_per_target} steps")
-    print(f"[INFO] Model weights will be saved every {save_freq_evals} evaluation(s)")
+    print(f"[INFO] Using {extractor_type} architecture with {features_dim} features")
 
-    # Vectorized training environment
     def make_env():
         env = MultiTargetAviary(
             num_drones=DEFAULT_DRONES,
@@ -335,7 +294,6 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
     
     train_env = make_vec_env(make_env, n_envs=NUM_VEC, seed=0)
     
-    # Evaluation environment
     eval_env = MultiTargetAviary(
         num_drones=DEFAULT_DRONES,
         obs=DEFAULT_OBS,
@@ -346,14 +304,14 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         record=False
     )
 
-    # Print environment info
     print('[INFO] Action space:', train_env.action_space)
     print('[INFO] Observation space:', train_env.observation_space)
 
-    # Initialize PPO model with better hyperparameters
-    model = PPO(
-        'MlpPolicy', 
-        train_env,
+    # CREATE MODEL WITH CUSTOM MULTI-AGENT ARCHITECTURE
+    model = create_multiagent_ppo_model(
+        env=train_env,
+        extractor_type=extractor_type,
+        features_dim=features_dim,
         learning_rate=config['learning_rate'],
         n_steps=config['n_steps'],
         batch_size=config['batch_size'],
@@ -366,10 +324,20 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         tensorboard_log=os.path.join(save_dir, 'tb')
     )
     
-    # Log model architecture and watch gradients
+    # Log the model architecture
+    print(f"\n[INFO] Model architecture:")
+    print(f"Policy: {model.policy}")
+    print(f"Feature extractor: {model.policy.features_extractor}")
+    
+    # Count parameters
+    total_params = sum(p.numel() for p in model.policy.parameters())
+    extractor_params = sum(p.numel() for p in model.policy.features_extractor.parameters())
+    
+    print(f"Total parameters: {total_params:,}")
+    print(f"Feature extractor parameters: {extractor_params:,}")
+    
     wandb.watch(model.policy, log='all', log_freq=1000, log_graph=True)
 
-    # Enhanced callbacks with comprehensive logging and model pushing
     enhanced_wandb_cb = EnhancedWandbCallback(
         log_freq=config['log_freq'],
         verbose=1
@@ -384,21 +352,19 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         deterministic=True,
         render=False,
         verbose=1,
-        save_freq_evals=save_freq_evals,  # New parameter
+        save_freq_evals=save_freq_evals,
         push_to_wandb=True
     )
     
-    # Standard WandB callback for additional SB3 metrics
     standard_wandb_cb = WandbCallback(
         model_save_path=save_dir,
         verbose=1,
-        model_save_freq=10000,
-        gradient_save_freq=1000,  # Save gradients periodically
+        model_save_freq=50000,
+        gradient_save_freq=50000,
     )
     
     cb_list = CallbackList([enhanced_wandb_cb, detailed_eval_cb, standard_wandb_cb])
 
-    # Log initial metrics
     wandb.log({
         'setup/num_drones': DEFAULT_DRONES,
         'setup/episode_length': len(target_sequence) * steps_per_target,
@@ -406,37 +372,39 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         'setup/steps_per_phase': steps_per_target,
         'setup/control_frequency': freq,
         'setup/save_freq_evals': save_freq_evals,
+        'setup/extractor_type': extractor_type,
+        'setup/features_dim': features_dim,
+        'setup/total_parameters': total_params,
+        'setup/extractor_parameters': extractor_params,
     })
 
-    # Train the model
     print(f"[INFO] Starting training for {config['total_timesteps']} timesteps...")
     start_time = time.time()
     
     model.learn(
         total_timesteps=config['total_timesteps'], 
         callback=cb_list, 
-        log_interval=10,  # More frequent console logging
+        log_interval=10,
         progress_bar=True
     )
     
     training_time = time.time() - start_time
     print(f"[INFO] Training completed in {training_time:.2f} seconds")
 
-    # Save final model
     final_path = os.path.join(save_dir, 'final_model.zip')
     model.save(final_path)
     
-    # Upload final model as wandb artifact
     final_artifact = wandb.Artifact('final_model', type='model', metadata={
         'training_complete': True,
         'total_timesteps': config['total_timesteps'],
         'training_time_seconds': training_time,
-        'final_model': True
+        'final_model': True,
+        'extractor_type': extractor_type,
+        'features_dim': features_dim,
     })
     final_artifact.add_file(final_path)
     wandb.log_artifact(final_artifact, aliases=["final", "best"])
 
-    # Final evaluation with detailed logging
     print("[INFO] Running final evaluation...")
     mean_reward, std_reward = evaluate_policy(
         model, eval_env, n_eval_episodes=10, deterministic=True
@@ -451,17 +419,18 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         'final_eval/timesteps_per_second': config['total_timesteps'] / training_time,
     })
 
-    # Create summary table for wandb
     summary_table = wandb.Table(columns=["Metric", "Value"])
     summary_table.add_data("Final Mean Reward", f"{mean_reward:.2f}")
     summary_table.add_data("Final Std Reward", f"{std_reward:.2f}")
     summary_table.add_data("Training Time (min)", f"{training_time/60:.2f}")
-    summary_table.add_data("Total Timesteps", f"{config['total_timesteps']:,}")  # Format as string with commas
-    summary_table.add_data("Number of Drones", f"{DEFAULT_DRONES}")  # Convert to string
-    summary_table.add_data("Model Save Frequency", f"Every {save_freq_evals} evaluation(s)")
+    summary_table.add_data("Total Timesteps", f"{config['total_timesteps']:,}")
+    summary_table.add_data("Number of Drones", f"{DEFAULT_DRONES}")
+    summary_table.add_data("Architecture Type", extractor_type)
+    summary_table.add_data("Features Dimension", f"{features_dim}")
+    summary_table.add_data("Total Parameters", f"{total_params:,}")
     wandb.log({"training_summary": summary_table})
 
-    # Demonstration
+    # Demonstration (same as before but with custom model)
     if gui or record_video:
         print("[INFO] Running demonstration...")
         test_env = MultiTargetAviary(
@@ -474,7 +443,6 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
             record=record_video
         )
         
-        # Optional: Create logger for visualization
         if plot:
             logger = Logger(
                 logging_freq_hz=freq, 
@@ -494,12 +462,11 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         max_steps = len(target_sequence) * steps_per_target
         print(f"[INFO] Running demonstration for {max_steps} steps...")
         
-        for i in range(max_steps + 100):  # Add buffer steps
+        for i in range(max_steps + 100):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, done, truncated, info = test_env.step(action)
             episode_reward += reward
             
-            # Collect demo metrics
             if 'phase' in info:
                 current_phase = info['phase']
                 if len(demo_metrics['phase_rewards']) <= current_phase:
@@ -513,13 +480,11 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
                 test_env.render()
                 sync(i, start, test_env.CTRL_TIMESTEP)
             
-            # Log progress
             if i % 100 == 0:
                 phase = info.get('phase', -1)
                 targets_reached = np.sum(info.get('targets_reached', []))
                 print(f"Step {i}, Phase {phase}, Targets reached: {targets_reached}, Reward: {reward:.2f}")
             
-            # Optional logging for plotting
             if plot and DEFAULT_OBS == ObservationType.KIN:
                 obs_arr = obs.squeeze() if obs.ndim > 1 else obs
                 act_arr = action.squeeze() if action.ndim > 1 else action
@@ -527,7 +492,7 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
                 for d in range(DEFAULT_DRONES):
                     state = np.hstack([
                         obs_arr[d][0:3] if obs_arr.ndim > 1 else obs_arr[0:3],
-                        np.zeros(4),  # quaternion placeholder
+                        np.zeros(4),
                         obs_arr[d][3:15] if obs_arr.ndim > 1 else obs_arr[3:15],
                         act_arr[d] if act_arr.ndim > 0 else act_arr
                     ])
@@ -539,26 +504,22 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         
         print(f"[INFO] Total episode reward: {episode_reward:.2f}")
         
-        # Log demonstration metrics
         wandb.log({
             'demo/total_reward': episode_reward,
             'demo/mean_distance': np.mean(demo_metrics['distances']) if demo_metrics['distances'] else 0,
             'demo/final_distance': demo_metrics['distances'][-1] if demo_metrics['distances'] else 0,
         })
         
-        # Create demonstration plots
         if demo_metrics['distances']:
             import matplotlib.pyplot as plt
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
             
-            # Distance plot
             ax1.plot(demo_metrics['distances'])
             ax1.set_title('Distance to Targets During Demonstration')
             ax1.set_xlabel('Steps')
             ax1.set_ylabel('Mean Distance')
             ax1.grid(True)
             
-            # Phase rewards plot
             if demo_metrics['phase_rewards']:
                 ax2.bar(range(len(demo_metrics['phase_rewards'])), demo_metrics['phase_rewards'])
                 ax2.set_title('Rewards per Phase')
@@ -580,7 +541,7 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Multi-target drone swarm training with PPO')
+    parser = argparse.ArgumentParser(description='Multi-agent drone swarm training with PPO')
     parser.add_argument('--gui', default=DEFAULT_GUI, type=str2bool, 
                         help='Use PyBullet GUI during demonstration')
     parser.add_argument('--record_video', default=DEFAULT_RECORD_VIDEO, type=str2bool, 
@@ -591,12 +552,19 @@ if __name__ == '__main__':
                         help='Generate plots at end')
     parser.add_argument('--local', default=True, type=bool, 
                         help='Run locally (longer training)')
-    parser.add_argument('--wandb_project', default='drone-swarm-multitarget', type=str, 
+    parser.add_argument('--wandb_project', default='drone-swarm-multiagent', type=str, 
                         help='Weights & Biases project name')
     parser.add_argument('--wandb_entity', default=None, type=str, 
                         help='Weights & Biases entity/username')
     parser.add_argument('--save_freq_evals', default=1, type=int,
-                        help='Save and push model weights every N evaluations (default: 1)')
+                        help='Save and push model weights every N evaluations')
+    
+    # NEW: Multi-agent architecture arguments
+    parser.add_argument('--extractor_type', default=DEFAULT_EXTRACTOR_TYPE, 
+                        choices=['attention', 'meanpool', 'deepsets'], type=str,
+                        help='Type of multi-agent feature extractor')
+    parser.add_argument('--features_dim', default=DEFAULT_FEATURES_DIM, type=int,
+                        help='Dimension of feature representation')
     
     args = parser.parse_args()
 
@@ -608,5 +576,7 @@ if __name__ == '__main__':
         args.local,
         args.wandb_project,
         args.wandb_entity,
-        args.save_freq_evals
+        args.save_freq_evals,
+        args.extractor_type,    # NEW
+        args.features_dim       # NEW
     )

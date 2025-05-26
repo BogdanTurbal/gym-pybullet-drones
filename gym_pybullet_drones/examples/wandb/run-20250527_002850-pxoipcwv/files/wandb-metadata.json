@@ -1,0 +1,16 @@
+{
+  "os": "macOS-15.5-arm64-arm-64bit",
+  "python": "CPython 3.10.5",
+  "startedAt": "2025-05-26T21:28:50.697126Z",
+  "program": "/Users/bohdan.turbal/Desktop/dimploma_thesis/gym-pybullet-drones/gym_pybullet_drones/examples/learn_multi.py",
+  "codePath": "gym_pybullet_drones/examples/learn_multi.py",
+  "git": {
+    "remote": "https://github.com/BogdanTurbal/gym-pybullet-drones.git",
+    "commit": "722188528b51cc39c5b79dbf3517340d8a8d031c"
+  },
+  "email": "bogdan.turbal.y@gmail.com",
+  "root": "/Users/bohdan.turbal/Desktop/dimploma_thesis/gym-pybullet-drones/gym_pybullet_drones/examples",
+  "host": "BTurbalPro14.local",
+  "executable": "/Users/bohdan.turbal/Desktop/dimploma_thesis/.conda/bin/python",
+  "codePathLocal": "learn_multi.py"
+}
