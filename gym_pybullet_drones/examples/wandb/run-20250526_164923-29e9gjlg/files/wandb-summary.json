@@ -1,0 +1,1 @@
+{"_runtime":1.622532,"_timestamp":1.74826736474999e+09,"_wandb":{"runtime":2},"setup/episode_length":600,"setup/save_freq_evals":1,"setup/steps_per_phase":150,"_step":0,"setup/num_drones":4,"setup/phases":4,"setup/control_frequency":30}
