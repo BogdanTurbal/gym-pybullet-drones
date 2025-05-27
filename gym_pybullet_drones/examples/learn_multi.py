@@ -49,16 +49,24 @@ DEFAULT_EXTRACTOR_TYPE = "matrix"
 DEFAULT_FEATURES_DIM = 64 #256
 
 class EnhancedWandbCallback(BaseCallback):
-    """Enhanced callback for detailed logging with artifact support"""
-    def __init__(self, log_freq=100, save_freq=25000, verbose=0):
+    """Enhanced callback for detailed logging with artifact support and minimum reward improvement"""
+    def __init__(self, log_freq=100, save_freq=25000, min_reward_improvement=0.1, verbose=0):
         super().__init__(verbose)
         self.log_freq = log_freq
         self.save_freq = save_freq
+        self.min_reward_improvement = min_reward_improvement  # NEW: Minimum improvement required
         self.episode_rewards = []
         self.episode_lengths = []
         self.current_episode_reward = 0
         self.current_episode_length = 0
         self.best_mean_reward = -np.inf
+        
+        # Track when we last saved a model for better logging
+        self.last_saved_reward = -np.inf
+        self.models_saved = 0
+        
+        if verbose > 0:
+            print(f"[EnhancedWandbCallback] Minimum reward improvement required: {min_reward_improvement}")
         
     def _on_step(self) -> bool:
         # Get reward and update episode tracking
@@ -78,12 +86,37 @@ class EnhancedWandbCallback(BaseCallback):
                 'train/episode_length': self.current_episode_length,
                 'train/mean_episode_reward_last_100': mean_reward_100,
                 'train/episodes_completed': len(self.episode_rewards),
+                'train/best_mean_reward': self.best_mean_reward,
+                'train/reward_improvement_needed': max(0, self.best_mean_reward + self.min_reward_improvement - mean_reward_100),
             }, step=self.num_timesteps)
             
-            # Save model as artifact if it's the best so far
-            if mean_reward_100 > self.best_mean_reward and len(self.episode_rewards) >= 10:
+            # NEW: Save model only if improvement exceeds minimum threshold
+            reward_improvement = mean_reward_100 - self.best_mean_reward
+            should_save = (
+                mean_reward_100 > self.best_mean_reward and  # Still better than previous best
+                reward_improvement >= self.min_reward_improvement and  # NEW: Meets minimum improvement
+                len(self.episode_rewards) >= 10  # Have enough episodes for stable estimate
+            )
+            
+            if should_save:
                 self.best_mean_reward = mean_reward_100
-                self._save_model_artifact(f"best_model_reward_{mean_reward_100:.2f}")
+                self.last_saved_reward = mean_reward_100
+                self.models_saved += 1
+                
+                self._save_model_artifact(f"best_model_reward_{mean_reward_100:.2f}_improvement_{reward_improvement:.2f}")
+                
+                if self.verbose > 0:
+                    print(f"\n[Model Saved] Timestep {self.num_timesteps}: "
+                          f"Reward improved by {reward_improvement:.3f} "
+                          f"(from {self.best_mean_reward - reward_improvement:.2f} to {mean_reward_100:.2f})")
+            
+            elif mean_reward_100 > self.best_mean_reward:
+                # Update best reward even if we don't save (for tracking)
+                # but don't actually save the model
+                if self.verbose > 0 and len(self.episode_rewards) % 10 == 0:  # Log occasionally
+                    print(f"[Model Not Saved] Timestep {self.num_timesteps}: "
+                          f"Reward improved by {reward_improvement:.3f} "
+                          f"(below threshold of {self.min_reward_improvement:.3f})")
             
             self.current_episode_reward = 0
             self.current_episode_length = 0
@@ -97,6 +130,7 @@ class EnhancedWandbCallback(BaseCallback):
                 log_dict = {
                     'train/timestep': self.num_timesteps,
                     'train/current_reward': reward,
+                    'train/models_saved_count': self.models_saved,  # Track how many models saved
                 }
                 
                 # Add environment-specific metrics if available
@@ -113,7 +147,7 @@ class EnhancedWandbCallback(BaseCallback):
                 
                 wandb.log(log_dict, step=self.num_timesteps)
         
-        # Save model periodically as artifacts
+        # Save model periodically as artifacts (regardless of performance)
         if self.n_calls % self.save_freq == 0 and self.n_calls > 0:
             self._save_model_artifact(f"checkpoint_step_{self.num_timesteps}")
             
@@ -136,7 +170,9 @@ class EnhancedWandbCallback(BaseCallback):
                     "episodes": len(self.episode_rewards),
                     "mean_reward_100": np.mean(self.episode_rewards[-100:]) if len(self.episode_rewards) >= 100 else 0,
                     "algorithm": "PPO",
-                    "architecture": "MultiAgent"
+                    "architecture": "MultiAgent",
+                    "models_saved_count": self.models_saved,
+                    "min_improvement_threshold": self.min_reward_improvement,
                 }
             )
                        
@@ -273,7 +309,7 @@ def save_final_artifacts(model, config, save_dir, run_name, mean_reward, std_rew
 
 
 def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_entity, 
-        extractor_type, features_dim):
+        extractor_type, features_dim, min_reward_improvement=1.0):
     """Main training function with enhanced WandB artifact support"""
     
     run_name = f"multiagent_rpm_{extractor_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -299,6 +335,7 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         'eval_freq': 25000 // NUM_VEC,
         'log_freq': 1000,
         'save_freq': 25000,  # How often to save artifacts
+        'min_reward_improvement': min_reward_improvement
     }
     
     # Enhanced WandB initialization with artifact settings
@@ -427,6 +464,7 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
     enhanced_wandb_cb = EnhancedWandbCallback(
         log_freq=config['log_freq'], 
         save_freq=config['save_freq'],
+        min_reward_improvement=config['min_reward_improvement'],
         verbose=1
     )
     
@@ -573,6 +611,9 @@ if __name__ == '__main__':
                         help='Type of multi-agent feature extractor')
     parser.add_argument('--features_dim', default=DEFAULT_FEATURES_DIM, type=int,
                         help='Dimension of feature representation')
+    parser.add_argument('--min_reward_improvement', default=1.0, type=float,
+                        help='Minimum reward improvement required to save new best model')
+    
     
     args = parser.parse_args()
 
@@ -595,5 +636,6 @@ if __name__ == '__main__':
         args.wandb_project,
         args.wandb_entity,
         args.extractor_type,
-        args.features_dim
+        args.features_dim,
+        args.min_reward_improvement
     )
