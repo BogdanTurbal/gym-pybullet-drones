@@ -1,0 +1,33 @@
+{
+  "num_episodes": 1,
+  "reward_stats": {
+    "mean": 1328.9613245735054,
+    "std": 0.0,
+    "min": 1328.9613245735054,
+    "max": 1328.9613245735054,
+    "all_rewards": [
+      1328.9613245735054
+    ]
+  },
+  "distance_stats": {
+    "mean": 0.4254012719421162,
+    "std": 0.0,
+    "min": 0.4254012719421162,
+    "max": 0.4254012719421162,
+    "all_distances": [
+      0.4254012719421162
+    ]
+  },
+  "individual_episodes": [
+    {
+      "total_reward": 1328.9613245735054,
+      "total_steps": 211,
+      "mean_reward_per_step": 6.298394903191968,
+      "num_phases_completed": 3,
+      "phase_rewards": [
+        528.1886242637519,
+        591.030656337738,
+        209.74204397201538
+      ],
+      "distance_stats": {
+        "final": 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-demo_multi_improved.py: Load pre-trained multi-drone swarm model and run demonstration
-Updated with enhanced metrics, better error handling, and improved visualization
+demo_multi_rpm_enhanced.py: Load pre-trained multi-drone swarm model and run demonstration
+Updated to work with multi-agent extractors and enhanced training script
 """
 import os
 import time
@@ -13,20 +13,29 @@ from datetime import datetime
 from stable_baselines3 import PPO
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from gym_pybullet_drones.envs.HoverAviary import HoverAviary
+# Import your custom extractors (REQUIRED for model loading)
+from multi_agent_extractors import (
+    MultiAgentMatrixExtractor,
+    MultiAgentSelfAttentionExtractor,
+    MultiAgentMeanPoolExtractor,
+    create_multiagent_ppo_model
+)
+
+# Import your updated environment
 from gym_pybullet_drones.envs.MultiTargetAviary import MultiTargetAviary
+from gym_pybullet_drones.envs.HoverAviary import HoverAviary
 from gym_pybullet_drones.utils.Logger import Logger
 from gym_pybullet_drones.utils.utils import sync, str2bool
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 
-# Default settings
+# Updated settings to match training script
 DEFAULT_GUI           = True
 DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'demo_results'
-DEFAULT_OBS           = ObservationType('kin')   # 'kin' or 'rgb'
-DEFAULT_ACT           = ActionType('rpm')  # 'rpm','pid','vel','one_d_rpm','one_d_pid'
+DEFAULT_OBS           = ObservationType('kin')
+DEFAULT_ACT           = ActionType('pid')  # Changed from 'rpm' to match training
 DEFAULT_DRONES        = 4
-DEFAULT_DURATION_SEC  = 5.0  # seconds per target phase
+DEFAULT_DURATION_SEC  = 3.0  # Match training script
 
 
 class DemoMetricsCollector:
@@ -156,45 +165,54 @@ class DemoMetricsCollector:
         return summary
 
 
-def create_target_sequence(num_drones=4, scale=1):
-    """Create a challenging but achievable target sequence"""
-    
+def create_target_sequence(num_drones=4, scale=1.2):
+    """Create target sequence matching the training script"""
     if num_drones == 4:
-        # 4-drone formations - enhanced sequence
+        # Use the same target sequence as in training
         targets = np.array([
-            # Phase 0: Square formation
-            [[ scale,  scale, 1], [-scale,  scale, 1], 
-             [-scale, -scale, 1], [ scale, -scale, 1]],
+            # Simple target: all drones go to same point to start
+            [[ scale,  scale, 1.0], [ scale,  scale, 1.0],
+             [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
             
-            # Phase 1: Rotate clockwise
-            [[-scale,  scale, 1], [-scale, -scale, 1], 
-             [ scale, -scale, 1], [ scale,  scale, 1]],
-            [[-scale,  scale, 1], [-scale, -scale, 1], 
-             [ scale, -scale, 1], [ scale,  scale, 1]],
-            [[-scale,  scale, 1], [-scale, -scale, 1], 
-             [ scale, -scale, 1], [ scale,  scale, 1]],
-            # # Phase 2: Diamond formation (higher altitude)
-            # [[ 0.0,  scale*1.2, 2.0], [-scale*1.2,  0.0, 2.0], 
-            #  [ 0.0, -scale*1.2, 2.0], [ scale*1.2,  0.0, 2.0]],
+            [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+             [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
             
-            # # Phase 3: Tight formation at center
-            # [[ 0.3,  0.3, 1.8], [-0.3,  0.3, 1.8], 
-            #  [-0.3, -0.3, 1.8], [ 0.3, -0.3, 1.8]],
-             
-            # # Phase 4: Line formation
-            # [[ 0.0,  scale, 1], [ 0.0,  scale/3, 1], 
-            #  [ 0.0, -scale/3, 1], [ 0.0, -scale, 1]]
+            [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+             [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
+            
+            [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+             [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
         ])
+        
+        # Alternative: Use the commented formation sequence from training
+        # Uncomment this if you want more complex formations
+        # targets = np.array([
+        #     # Phase 0: Simple horizontal line (easiest formation)
+        #     [[-1.5*scale, 0.0, 1.2], [-0.5*scale, 0.0, 1.2], 
+        #      [ 0.5*scale, 0.0, 1.2], [ 1.5*scale, 0.0, 1.2]],
+            
+        #     # Phase 1: Wide square formation  
+        #     [[-scale, -scale, 1.2], [ scale, -scale, 1.2], 
+        #      [ scale,  scale, 1.2], [-scale,  scale, 1.2]],
+            
+        #     # Phase 2: Diamond formation (45° rotation)
+        #     [[ 0.0, -1.4*scale, 1.4], [ 1.4*scale, 0.0, 1.4], 
+        #      [ 0.0,  1.4*scale, 1.4], [-1.4*scale, 0.0, 1.4]],
+            
+        #     # Phase 3: Tight square formation (precision training)
+        #     [[-0.5*scale, -0.5*scale, 1.0], [ 0.5*scale, -0.5*scale, 1.0], 
+        #      [ 0.5*scale,  0.5*scale, 1.0], [-0.5*scale,  0.5*scale, 1.0]]
+        # ])
     else:
-        # For other numbers of drones, create circular formations
+        # Create circular formations for other numbers of drones
         targets = []
-        n_phases = 5
+        n_phases = 4
         for phase in range(n_phases):
             phase_targets = []
-            radius = scale * (1.0 + 0.2 * phase)  # Varying radius
-            height = 1 + 0.3 * phase  # Varying height
+            radius = scale * (1.0 + 0.2 * phase)
+            height = 1.5 + 0.2 * phase
             for i in range(num_drones):
-                angle = 2 * np.pi * i / num_drones + phase * np.pi / 4  # Rotate each phase
+                angle = 2 * np.pi * i / num_drones + phase * np.pi / 4
                 x = radius * np.cos(angle)
                 y = radius * np.sin(angle)
                 phase_targets.append([x, y, height])
@@ -307,13 +325,22 @@ def create_enhanced_plots(metrics_collector, output_folder, episode_num):
             ax7.set_ylabel('Formation Error')
             ax7.grid(True)
         
-        # Plot 8: Action analysis (simplified)
+        # Plot 8: Action analysis - Updated for PID actions
         ax8 = fig.add_subplot(gs[1, 3])
         if episode_data['actions']:
             actions = np.array(episode_data['actions'])
             if actions.ndim > 1 and actions.shape[1] > 0:
-                # Plot action variance for first drone
-                action_var = np.var(actions[:, 0] if actions.ndim > 2 else actions, axis=1 if actions.ndim > 2 else 0)
+                # Plot action variance for first drone (4 PID values)
+                if actions.ndim == 3:  # [time, drone, action]
+                    drone_0_actions = actions[:, 0, :]  # First drone's actions over time
+                    action_var = np.var(drone_0_actions, axis=1)
+                elif actions.ndim == 2:  # [time, all_actions]
+                    # Assume first 4 actions are for drone 0
+                    drone_0_actions = actions[:, :4]
+                    action_var = np.var(drone_0_actions, axis=1)
+                else:
+                    action_var = np.var(actions, axis=0 if actions.ndim > 1 else None)
+                
                 ax8.plot(action_var, alpha=0.7)
                 ax8.set_title('Action Variance (Drone 0)')
                 ax8.set_xlabel('Steps')
@@ -426,6 +453,8 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
     
     print(f"[INFO] Loading model from: {model_path}")
     print(f"[INFO] Running {num_episodes} demonstration episode(s)")
+    print(f"[INFO] Using action type: {DEFAULT_ACT} (PID control)")
+    print(f"[INFO] Multi-agent extractors imported and available")
     
     # Prepare output directory with timestamp
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -441,8 +470,8 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
         print(f"[ERROR] Failed to create dummy environment: {e}")
         return
 
-    # Create target sequence
-    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=1)
+    # Create target sequence matching training script
+    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=1.0)  # Use scale=1.0 as in training
     steps_per_target = int(DEFAULT_DURATION_SEC * freq)
     
     print(f"[INFO] Target sequence shape: {target_sequence.shape}")
@@ -451,11 +480,19 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
     print(f"[INFO] Control frequency: {freq} Hz")
 
     # Load the trained model with error handling
+    # The model should load correctly since we imported the custom extractors
     try:
         model = PPO.load(model_path)
         print("[INFO] Model loaded successfully!")
         print(f"[INFO] Model policy: {type(model.policy).__name__}")
+        
+        # Check if it has custom features extractor
+        if hasattr(model.policy, 'features_extractor'):
+            print(f"[INFO] Features extractor: {type(model.policy.features_extractor).__name__}")
+        
     except Exception as e:
+        print(f"[ERROR] Failed to load model: {e}")
+        print("[ERROR] Make sure multi_agent_extractors.py is available and importable")
         raise RuntimeError(f"Failed to load model: {e}")
 
     # Create evaluation environment for quick assessment
@@ -472,6 +509,16 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
         
         print('[INFO] Action space:', eval_env.action_space)
         print('[INFO] Observation space:', eval_env.observation_space)
+        
+        # Verify observation shape matches training expectations
+        obs_shape = eval_env.observation_space.shape
+        action_buffer_size = 0  # As set in training script
+        expected_base_features = 12 + (action_buffer_size * 4)
+        expected_total_features = expected_base_features + 8
+        expected_shape = (DEFAULT_DRONES, expected_total_features)
+        
+        print(f'[INFO] Expected observation shape: {expected_shape}')
+        print(f'[INFO] Actual observation shape: {obs_shape}')
         
         # Quick evaluation
         print(f"[INFO] Running quick evaluation...")
@@ -572,11 +619,21 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
                                 pos = drone_obs[0:3] if len(drone_obs) >= 3 else np.pad(drone_obs, (0, 3-len(drone_obs)))
                                 vel_etc = drone_obs[3:15] if len(drone_obs) > 15 else np.pad(drone_obs[3:], (0, 12-len(drone_obs[3:])))
                                 
+                                # Handle PID actions (4 values per drone)
+                                if act_arr.ndim > 1 and act_arr.shape[0] >= DEFAULT_DRONES * 4:
+                                    # Action array is [drone0_pid[4], drone1_pid[4], ...]
+                                    drone_action = act_arr[d*4:(d+1)*4]
+                                elif act_arr.ndim == 1 and len(act_arr) == 4:
+                                    # Single drone or all drones same action
+                                    drone_action = act_arr
+                                else:
+                                    drone_action = [0, 0, 0, 0]
+                                
                                 state = np.hstack([
                                     pos,                    # position
                                     np.zeros(4),           # quaternion placeholder
                                     vel_etc,               # velocity, etc.
-                                    act_arr[d] if act_arr.ndim > 0 and len(act_arr) > d else [act_arr] if act_arr.ndim == 0 else [0]
+                                    drone_action           # PID action (4 values)
                                 ])
                                 
                                 # Ensure state is the right length (20 elements expected)
@@ -721,7 +778,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Enhanced demonstration of pre-trained multi-drone swarm model')
+    parser = argparse.ArgumentParser(description='Enhanced demonstration of pre-trained multi-agent drone swarm model')
     parser.add_argument('--model_path', required=True, type=str,
                         help='Path to the trained PPO model (.zip file)')
     parser.add_argument('--gui', default=DEFAULT_GUI, type=str2bool, 
@@ -749,6 +806,13 @@ if __name__ == '__main__':
     if args.num_episodes < 1:
         print("[ERROR] Number of episodes must be at least 1!")
         exit(1)
+    
+    print("="*60)
+    print("Multi-Agent Drone Swarm Demonstration - Enhanced")
+    print("="*60)
+    print(f"Action type: {DEFAULT_ACT} (PID control)")
+    print(f"Multi-agent extractors: Available")
+    print("="*60)
     
     try:
         demo_folder = run_demonstration(

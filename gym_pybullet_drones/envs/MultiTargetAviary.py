@@ -481,7 +481,7 @@ class MultiTargetAviary(BaseRLAviary):
         steps_per_target: int = 100,
         tolerance: float = 0.15,
         collision_distance: float = 0.3,
-        progress_scale: float = 100.0,  # NEW: Scale factor for progress rewards
+        progress_scale: float = 10.0,  # NEW: Scale factor for progress rewards
     ):
         # Create default target sequence if none provided
         if target_sequence is None:
@@ -737,9 +737,10 @@ class MultiTargetAviary(BaseRLAviary):
         # Check termination conditions
         done = self._computeTerminated()
         truncated, unnatural = self._computeTruncated()
-        if truncated and unnatural:
-            #print(f"Truncated due to unnatural conditions at step {self.total_steps}")
-            reward -= 20.0  # Penalize for unnatural truncation
+        # if truncated and unnatural:
+        #     #print(f"Truncated due to unnatural conditions at step {self.total_steps}")
+        #     reward -= 20.0  # Penalize for unnatural truncation
+        #     truncated = False
         
         # Update info with additional metrics
         distances_to_targets = np.linalg.norm(positions - current_targets, axis=1)
@@ -768,16 +769,18 @@ class MultiTargetAviary(BaseRLAviary):
         # Calculate current distances
         current_distances = np.linalg.norm(positions - targets, axis=1)
         
-        if self.first_step:
-            # On first step, no delta reward (no previous distance to compare)
-            # Could give small reward based on current distance to encourage initial movement
-            reward += np.sum(np.exp(-0.5 * current_distances))  # Small initial reward
-            self.first_step = False
-        else:
-            # MAIN DELTA REWARD: reward progress toward targets
-            distance_deltas = self.previous_distances - current_distances
-            progress_reward = self.progress_scale * np.sum(distance_deltas)
-            reward += progress_reward
+        reward += np.sum(2-current_distances)  # Negative distance reward
+        
+        # if self.first_step:
+        #     # On first step, no delta reward (no previous distance to compare)
+        #     # Could give small reward based on current distance to encourage initial movement
+        #     reward += np.sum(np.exp(-0.5 * current_distances))  # Small initial reward
+        #     self.first_step = False
+        # else:
+        #     # MAIN DELTA REWARD: reward progress toward targets
+        #     distance_deltas = self.previous_distances - current_distances
+        #     progress_reward = self.progress_scale * np.sum(distance_deltas)
+        #     reward += progress_reward
             
             # Optional: Add small bonus for being very close to targets
             #close_bonus = np.sum(np.exp(-5.0 * current_distances))
@@ -789,7 +792,7 @@ class MultiTargetAviary(BaseRLAviary):
         # Bonus for reaching targets
         newly_reached = (current_distances < self.tolerance) & (~self.targets_reached)
         if np.any(newly_reached):
-            reward += np.sum(newly_reached) * 100.0  # Large bonus for target completion
+            reward += np.sum(newly_reached) * 10.0  # Large bonus for target completion
             self.targets_reached |= newly_reached
         
         # Optional collision avoidance (uncomment if desired)
@@ -804,7 +807,7 @@ class MultiTargetAviary(BaseRLAviary):
         
         # Phase completion bonus
         if np.all(self.targets_reached):
-            reward += 1000.0
+            reward += 100.0
         
         return reward
 
@@ -840,7 +843,7 @@ class MultiTargetAviary(BaseRLAviary):
         if self.total_steps >= self.max_episode_steps:
             return True, False
             
-        # Episode truncated if any drone goes too far out of bounds
+        # # Episode truncated if any drone goes too far out of bounds
         for i in range(self.NUM_DRONES):
             state = self._getDroneStateVector(i)
             #print(f"Drone {i} state: {state}")
@@ -885,7 +888,7 @@ if __name__ == "__main__":
         obs=ObservationType.KIN,
         act=ActionType.RPM,  # Using RPM actions (4 values per drone)
         gui=False,
-        progress_scale=100.0  # NEW: Scale factor for delta rewards
+        progress_scale=10.0  # NEW: Scale factor for delta rewards
     )
     
     print(f"Action space: {env.action_space}")

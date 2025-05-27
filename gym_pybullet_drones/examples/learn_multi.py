@@ -46,8 +46,7 @@ NUM_VEC = 1
 
 # Multi-agent architecture settings
 DEFAULT_EXTRACTOR_TYPE = "matrix"
-DEFAULT_FEATURES_DIM = 256
-
+DEFAULT_FEATURES_DIM = 64 #256
 
 class EnhancedWandbCallback(BaseCallback):
     """Enhanced callback for detailed logging with artifact support"""
@@ -117,7 +116,7 @@ class EnhancedWandbCallback(BaseCallback):
         # Save model periodically as artifacts
         if self.n_calls % self.save_freq == 0 and self.n_calls > 0:
             self._save_model_artifact(f"checkpoint_step_{self.num_timesteps}")
-        
+            
         return True
     
     def _save_model_artifact(self, artifact_name):
@@ -140,6 +139,7 @@ class EnhancedWandbCallback(BaseCallback):
                     "architecture": "MultiAgent"
                 }
             )
+                       
             artifact.add_file(temp_path)
             wandb.log_artifact(artifact)
             
@@ -159,32 +159,45 @@ def create_target_sequence(num_drones=4, scale=1.2):
     if num_drones == 4:
         targets = np.array([
             # Simple target: all drones go to same point to start
-            [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
-             [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
-            [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
-             [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
-            [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
-             [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
-            [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
-             [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
+            # [[ scale,  scale, 1.0]],
+            
+            # [[ scale,  scale, 1.0]],
+            
+            # [[ scale,  scale, 1.0]],
+            
+            # [[ scale,  scale, 1.0]],
         ])
         # targets = np.array([
-        #     # Phase 0: Simple horizontal line (easiest formation)
-        #     [[-1.5*scale, 0.0, 1.2], [-0.5*scale, 0.0, 1.2], 
-        #      [ 0.5*scale, 0.0, 1.2], [ 1.5*scale, 0.0, 1.2]],
+        #     # Simple target: all drones go to same point to start
+        #     [[ scale,  scale, 1.0], [ scale,  scale, 1.0],
+        #      [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
             
-        #     # Phase 1: Wide square formation  
-        #     [[-scale, -scale, 1.2], [ scale, -scale, 1.2], 
-        #      [ scale,  scale, 1.2], [-scale,  scale, 1.2]],
+        #     [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+        #      [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
             
-        #     # Phase 2: Diamond formation (45° rotation)
-        #     [[ 0.0, -1.4*scale, 1.4], [ 1.4*scale, 0.0, 1.4], 
-        #      [ 0.0,  1.4*scale, 1.4], [-1.4*scale, 0.0, 1.4]],
+        #     [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+        #      [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
             
-        #     # Phase 3: Tight square formation (precision training)
-        #     [[-0.5*scale, -0.5*scale, 1.0], [ 0.5*scale, -0.5*scale, 1.0], 
-        #      [ 0.5*scale,  0.5*scale, 1.0], [-0.5*scale,  0.5*scale, 1.0]]
+        #     [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+        #      [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
         # ])
+        targets = np.array([
+            # Phase 0: Simple horizontal line (easiest formation)
+            [[-1.5*scale, 0.0, 1.2], [-0.5*scale, 0.0, 1.2], 
+             [ 0.5*scale, 0.0, 1.2], [ 1.5*scale, 0.0, 1.2]],
+            
+            # Phase 1: Wide square formation  
+            [[-scale, -scale, 1.2], [ scale, -scale, 1.2], 
+             [ scale,  scale, 1.2], [-scale,  scale, 1.2]],
+            
+            # Phase 2: Diamond formation (45° rotation)
+            [[ 0.0, -1.4*scale, 1.4], [ 1.4*scale, 0.0, 1.4], 
+             [ 0.0,  1.4*scale, 1.4], [-1.4*scale, 0.0, 1.4]],
+            
+            # Phase 3: Tight square formation (precision training)
+            [[-0.5*scale, -0.5*scale, 1.0], [ 0.5*scale, -0.5*scale, 1.0], 
+             [ 0.5*scale,  0.5*scale, 1.0], [-0.5*scale,  0.5*scale, 1.0]]
+        ])
     else:
         # Create circular formations for other numbers of drones
         targets = []
@@ -274,14 +287,14 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         'obs_type': DEFAULT_OBS.name,
         'act_type': DEFAULT_ACT.name,
         'duration_sec': DEFAULT_DURATION_SEC,
-        'total_timesteps': 100_000,#int(5e5) if local else int(1e5),
+        'total_timesteps': 1900000,#int(5e5) if local else int(1e5),
         'learning_rate': 3e-4,
         'batch_size': 128,
         'n_epochs': 10,
         'gamma': 0.99,
         'gae_lambda': 0.95,
         'n_steps': 2048,
-        'clip_range': 0.1,
+        'clip_range': 0.2,
         'ent_coef': 0.01,
         'eval_freq': 25000 // NUM_VEC,
         'log_freq': 1000,
