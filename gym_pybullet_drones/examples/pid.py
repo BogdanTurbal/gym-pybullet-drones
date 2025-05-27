@@ -15,6 +15,19 @@ The drones move, at different altitudes, along cicular trajectories
 in the X-Y plane, around point (0, -.3).
 
 """
+
+
+
+            # [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+            #  [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
+            # [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+            #  [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
+            # [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+            #  [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
+            # [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
+            #  [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
+            
+            
 import os
 import time
 import argparse
