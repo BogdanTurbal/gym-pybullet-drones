@@ -307,7 +307,7 @@ def create_multiagent_ppo_model(env, extractor_type="matrix", features_dim=256, 
         "features_extractor_class": extractor_class,
         "features_extractor_kwargs": {"features_dim": features_dim},
         # Enhanced network architecture for larger observation space
-        "net_arch": [dict(pi=[256, 256], vf=[256, 256])],  # Larger policy and value networks
+        "net_arch": [dict(pi=[64, 64], vf=[64, 64])],  # Larger policy and value networks
     }
     
     # Merge with any additional policy kwargs
