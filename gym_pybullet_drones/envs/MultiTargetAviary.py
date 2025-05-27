@@ -273,7 +273,7 @@ class MultiTargetAviary(BaseRLAviary):
         done = self._computeTerminated()
         truncated, unnatural = self._computeTruncated()
         if truncated and unnatural:
-            print(f"Truncated due to unnatural conditions at step {self.total_steps}")
+            #print(f"Truncated due to unnatural conditions at step {self.total_steps}")
             reward -= 20.0  # Penalize for unnatural truncation
         
         # Update info with additional metrics
@@ -298,16 +298,24 @@ class MultiTargetAviary(BaseRLAviary):
         
         # 1. Distance-to-target reward (primary objective)
         distances = np.linalg.norm(positions - targets, axis=1)
+        #print(targets)
+        # print(f"Positions:\n{positions}")
+        # print(f"Targets:\n{targets}")
+        # print("------")
+        # distances = np.linalg.norm(positions[:, 2] - targets[:, 2], axis=1)
+        ret = np.sum(np.exp(-2.0 * distances))#max(0, 2 - np.linalg.norm(targets[:, 2]-positions[:, 2]))#.sum()
+        #ret = max(0, 2 - np.linalg.norm(targets[:, 2]-positions[:, 2]))
+        reward += ret
         
-        # Exponential reward for being close to targets
-        target_rewards = np.exp(-2.0 * distances)
-        reward += np.sum(target_rewards)
+        # # Exponential reward for being close to targets
+        # target_rewards = np.exp(-2.0 * distances)
+        # reward += np.sum(target_rewards)
         
-        # # Bonus for reaching targets
-        # newly_reached = (distances < self.tolerance) & (~self.targets_reached)
-        # if np.any(newly_reached):
-        #     reward += np.sum(newly_reached) * 10.0
-        #     self.targets_reached |= newly_reached
+        # Bonus for reaching targets
+        newly_reached = (distances < self.tolerance) & (~self.targets_reached)
+        if np.any(newly_reached):
+            reward += np.sum(newly_reached) * 10.0
+            self.targets_reached |= newly_reached
         
         # # 2. Collision avoidance penalty
         # collision_penalty = 0.0
@@ -320,9 +328,9 @@ class MultiTargetAviary(BaseRLAviary):
         
         # reward += collision_penalty
         
-        # # 3. Phase completion bonus
-        # if np.all(self.targets_reached):
-        #     reward += 20.0
+        # 3. Phase completion bonus
+        if np.all(self.targets_reached):
+            reward += 20.0
         
         return reward
 
@@ -361,11 +369,12 @@ class MultiTargetAviary(BaseRLAviary):
         # Episode truncated if any drone goes too far out of bounds
         for i in range(self.NUM_DRONES):
             state = self._getDroneStateVector(i)
+            #print(f"Drone {i} state: {state}")
             position = state[0:3]
             
             # Check position bounds
             if (abs(position[0]) > 5.0 or abs(position[1]) > 5.0 or 
-                position[2] > 3.0 or position[2] < 0.1):
+                position[2] > 4.0 or position[2] < 0.05):
                 return True, True
                 
             # # Check orientation bounds (too tilted)
