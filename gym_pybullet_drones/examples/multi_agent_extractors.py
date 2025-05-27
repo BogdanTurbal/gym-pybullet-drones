@@ -45,19 +45,22 @@ class MultiAgentMatrixExtractor(BaseFeaturesExtractor):
             nn.Linear(hidden_dim, 128),
             nn.ReLU(),
             nn.LayerNorm(128),
-            nn.Linear(128, 64),
+            nn.Linear(128, 32),
             nn.ReLU()
         )
         
         # Final aggregation network
-        aggregation_input_dim = 64 * self.num_agents
+        aggregation_input_dim = 32 * self.num_agents
         self.aggregator = nn.Sequential(
-            nn.Linear(aggregation_input_dim, features_dim),
+            nn.Linear(aggregation_input_dim, 128),
+            nn.ReLU(),
+            nn.LayerNorm(128),
+            nn.Dropout(0.1),
+            nn.Linear(128, features_dim),
             nn.ReLU(),
             nn.LayerNorm(features_dim),
             nn.Dropout(0.1),
             nn.Linear(features_dim, features_dim),
-            nn.ReLU()
         )
         
         self._features_dim = features_dim
