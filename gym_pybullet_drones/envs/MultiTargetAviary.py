@@ -39,9 +39,9 @@ class MultiTargetAviary(BaseRLAviary):
         collision_distance: float = 0.05,
         progress_scale: float = 10.0,  # Scale factor for progress rewards
         # NEW: Stability penalty coefficients
-        velocity_change_penalty: float = 0.025,
+        velocity_change_penalty: float = 0.0125,
         tilt_change_penalty: float = 0.025,
-        angular_velocity_penalty: float = 0.0125,
+        angular_velocity_penalty: float = 0.0065,
     ):
         # Create default target sequence if none provided
         if target_sequence is None:
@@ -215,12 +215,15 @@ class MultiTargetAviary(BaseRLAviary):
             #phase_progress = self.current_phase / max(1, len(self.target_sequence) - 1)
             
             target_obs = np.zeros((self.NUM_DRONES, 6), dtype=np.float32)
+            #print('------')
             
             for i in range(self.NUM_DRONES):
                 # Get current position from base observation (first 3 features are x, y, z)
                 my_position = base_obs[i, 0:3]
                 my_target = current_targets[i]
                 relative_target = my_target - my_position
+                # print(my_position)
+                # print(my_target)
                 #target_distance = np.linalg.norm(relative_target)
                 
                 target_obs[i, :] = np.array([
@@ -365,9 +368,9 @@ class MultiTargetAviary(BaseRLAviary):
             reward += phase_bonus
         
         # === NEW: DETAILED STABILITY PENALTIES ===
-        total_velocity_penalty = 0.0
-        # total_tilt_penalty = 0.0
-        total_angular_penalty = 0.0
+        # total_velocity_penalty = 0.0
+        # # total_tilt_penalty = 0.0
+        # total_angular_penalty = 0.0
         
         total_stability_penalty=0
         

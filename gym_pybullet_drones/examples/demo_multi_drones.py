@@ -35,7 +35,7 @@ DEFAULT_OUTPUT_FOLDER = 'demo_results'
 DEFAULT_OBS           = ObservationType('kin')
 DEFAULT_ACT           = ActionType('pid')  # Changed from 'rpm' to match training
 DEFAULT_DRONES        = 1
-DEFAULT_DURATION_SEC  = 6.0  # Match training script
+DEFAULT_DURATION_SEC  = 3.0  # Match training script
 
 
 class DemoMetricsCollector:
