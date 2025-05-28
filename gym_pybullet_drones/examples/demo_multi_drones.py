@@ -167,7 +167,7 @@ class DemoMetricsCollector:
 
 def create_target_sequence(num_drones=4, scale=1.2):
     """Create target sequence matching the training script"""
-    if num_drones == 4:
+    if num_drones == 1:
         # Use the same target sequence as in training
         targets = np.array([
             # Simple target: all drones go to same point to start
@@ -498,7 +498,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
         return
 
     # Create target sequence matching training script
-    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=2.0)  # Use scale=1.0 as in training
+    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=1.0)  # Use scale=1.0 as in training
     steps_per_target = int(DEFAULT_DURATION_SEC * freq)
     
     print(f"[INFO] Target sequence shape: {target_sequence.shape}")
@@ -524,6 +524,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
 
     # Create evaluation environment for quick assessment
     try:
+        print(target_sequence)
         eval_env = MultiTargetAviary(
             num_drones=DEFAULT_DRONES,
             obs=DEFAULT_OBS,

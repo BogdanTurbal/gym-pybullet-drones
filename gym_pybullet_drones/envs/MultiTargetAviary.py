@@ -39,9 +39,9 @@ class MultiTargetAviary(BaseRLAviary):
         collision_distance: float = 0.05,
         progress_scale: float = 10.0,  # Scale factor for progress rewards
         # NEW: Stability penalty coefficients
-        velocity_change_penalty: float = 0.05,
-        tilt_change_penalty: float = 0.05,
-        angular_velocity_penalty: float = 0.025,
+        velocity_change_penalty: float = 0.025,
+        tilt_change_penalty: float = 0.025,
+        angular_velocity_penalty: float = 0.0125,
     ):
         # Create default target sequence if none provided
         if target_sequence is None:
@@ -170,7 +170,7 @@ class MultiTargetAviary(BaseRLAviary):
             base_shape = base_obs_space.shape
             
             # Add target information: 8 features per drone
-            target_features_per_drone = 8
+            target_features_per_drone = 6
             
             # New observation shape: base_features + target_features per drone
             new_shape = (base_shape[0], base_shape[1] + target_features_per_drone)
@@ -212,22 +212,22 @@ class MultiTargetAviary(BaseRLAviary):
             
             # Compute target information
             current_targets = self.get_current_targets()
-            phase_progress = self.current_phase / max(1, len(self.target_sequence) - 1)
+            #phase_progress = self.current_phase / max(1, len(self.target_sequence) - 1)
             
-            target_obs = np.zeros((self.NUM_DRONES, 8), dtype=np.float32)
+            target_obs = np.zeros((self.NUM_DRONES, 6), dtype=np.float32)
             
             for i in range(self.NUM_DRONES):
                 # Get current position from base observation (first 3 features are x, y, z)
                 my_position = base_obs[i, 0:3]
                 my_target = current_targets[i]
                 relative_target = my_target - my_position
-                target_distance = np.linalg.norm(relative_target)
+                #target_distance = np.linalg.norm(relative_target)
                 
                 target_obs[i, :] = np.array([
                     my_target[0], my_target[1], my_target[2],      # Target position (3)
                     relative_target[0], relative_target[1], relative_target[2],  # Relative target (3)
-                    target_distance,                               # Distance (1)
-                    phase_progress                                 # Phase progress (1)
+                    #target_distance,                               # Distance (1)
+                    #phase_progress                                 # Phase progress (1)
                 ])
             
             # Concatenate base observations with target observations
@@ -342,7 +342,7 @@ class MultiTargetAviary(BaseRLAviary):
         # Calculate current distances
         current_distances = np.linalg.norm(positions - targets, axis=1)
         
-        base_distance_reward = np.sum(2-current_distances) #np.sum(np.exp(-2*current_distances))#np.sum(2-current_distances)  # Negative distance reward
+        base_distance_reward = -np.sum(current_distances) * 0.1 #np.sum(np.exp(-2*current_distances))#np.sum(2-current_distances)  # Negative distance reward
         reward += base_distance_reward
         
         # Update previous distances for next step
@@ -352,14 +352,16 @@ class MultiTargetAviary(BaseRLAviary):
         target_bonus = 0.0
         newly_reached = (current_distances < self.tolerance) & (~self.targets_reached)
         if np.any(newly_reached):
-            target_bonus = np.sum(newly_reached) * 10.0  # Large bonus for target completion
+            print(f"Some target reached!!!!!!")
+            print(newly_reached)
+            target_bonus = np.sum(newly_reached) * 50.0  # Large bonus for target completion
             reward += target_bonus
             self.targets_reached |= newly_reached
         
         # Phase completion bonus
         phase_bonus = 0.0
         if np.all(self.targets_reached):
-            phase_bonus = 100.0
+            phase_bonus = 200.0
             reward += phase_bonus
         
         # === NEW: DETAILED STABILITY PENALTIES ===
@@ -379,7 +381,10 @@ class MultiTargetAviary(BaseRLAviary):
                 
                 total_stability_penalty += - self.velocity_change_penalty * np.linalg.norm(current_vel) - self.angular_velocity_penalty * np.linalg.norm(current_ang_v)
         reward += total_stability_penalty
-    
+        
+        for i in range(self.NUM_DRONES):
+            if positions[i][2] < 0.1:
+                reward -= 1
         
         return reward
 
@@ -484,13 +489,13 @@ class MultiTargetAviary(BaseRLAviary):
             return True, False
             
         # Episode truncated if any drone goes too far out of bounds
-        for i in range(self.NUM_DRONES):
-            state = self._getDroneStateVector(i)
-            position = state[0:3]
+        # for i in range(self.NUM_DRONES):
+        #     state = self._getDroneStateVector(i)
+        #     position = state[0:3]
             
-            # Check position bounds
-            if (position[2] > 4.0 or position[2] < 0.1):
-                return True, True
+        #     # Check position bounds
+        #     # if (position[2] > 4.0 or position[2] < 0.1):
+        #     #     return True, True
                 
         return False, False
 
