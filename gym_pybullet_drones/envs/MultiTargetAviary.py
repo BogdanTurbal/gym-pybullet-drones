@@ -1,4 +1,4 @@
-# MultiTargetAviary.py - UPDATED for ActionType.RPM (4 actions per drone) with DELTA DISTANCE REWARDS
+# MultiTargetAviary.py - UPDATED with STABILITY PENALTIES
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -16,6 +16,7 @@ class MultiTargetAviary(BaseRLAviary):
     - Adds target information by overriding observation methods
     - Implements all required abstract methods
     - USES DELTA DISTANCE REWARDS: reward based on progress toward targets
+    - NEW: STABILITY PENALTIES for velocity changes, tilt changes, and angular velocity
     """
 
     def __init__(
@@ -35,8 +36,12 @@ class MultiTargetAviary(BaseRLAviary):
         target_sequence: np.ndarray = None,
         steps_per_target: int = 100,
         tolerance: float = 0.15,
-        collision_distance: float = 0.1,
-        progress_scale: float = 10.0,  # NEW: Scale factor for progress rewards
+        collision_distance: float = 0.05,
+        progress_scale: float = 10.0,  # Scale factor for progress rewards
+        # NEW: Stability penalty coefficients
+        velocity_change_penalty: float = 0.05,
+        tilt_change_penalty: float = 0.05,
+        angular_velocity_penalty: float = 0.1,
     ):
         # Create default target sequence if none provided
         if target_sequence is None:
@@ -46,7 +51,12 @@ class MultiTargetAviary(BaseRLAviary):
         self.steps_per_target = steps_per_target
         self.tolerance = tolerance
         self.collision_distance = collision_distance
-        self.progress_scale = progress_scale  # NEW: Scale for delta rewards
+        self.progress_scale = progress_scale
+        
+        # NEW: Stability penalty coefficients
+        self.velocity_change_penalty = velocity_change_penalty
+        self.tilt_change_penalty = tilt_change_penalty
+        self.angular_velocity_penalty = angular_velocity_penalty
         
         self.gui = gui
         self.record = record
@@ -65,9 +75,14 @@ class MultiTargetAviary(BaseRLAviary):
         self.targets_reached = np.zeros(num_drones, dtype=bool)
         self.collision_count = 0
         
-        # NEW: Track previous distances for delta rewards
+        # Track previous distances for delta rewards
         self.previous_distances = np.zeros(num_drones, dtype=np.float32)
-        self.first_step = True  # Flag to handle first step (no previous distance)
+        self.first_step = True
+        
+        # NEW: Previous state tracking for stability penalties
+        self.previous_vel = None
+        self.previous_rpy = None
+        self.previous_ang_v = None
         
         # Set episode length in seconds
         self.EPISODE_LEN_SEC = (len(target_sequence) * steps_per_target) / ctrl_freq
@@ -98,6 +113,7 @@ class MultiTargetAviary(BaseRLAviary):
         print(f"[MultiTargetAviary] Base observation dim: {self.base_obs_dim} features per drone")
         print(f"[MultiTargetAviary] Action buffer size: {self.ACTION_BUFFER_SIZE}")
         print(f"[MultiTargetAviary] Using DELTA distance rewards with scale: {progress_scale}")
+        print(f"[MultiTargetAviary] Stability penalties - Vel: {velocity_change_penalty}, Tilt: {tilt_change_penalty}, AngVel: {angular_velocity_penalty}")
 
     def _create_default_targets(self, num_drones):
         """Create a default sequence of targets"""
@@ -170,12 +186,6 @@ class MultiTargetAviary(BaseRLAviary):
             target_low = np.full((self.NUM_DRONES, target_features_per_drone), lo, dtype=np.float32)
             target_high = np.full((self.NUM_DRONES, target_features_per_drone), hi, dtype=np.float32)
             
-            # # Set specific bounds for some features
-            # target_low[:, 6] = 0.0  # Distance is always positive
-            # target_high[:, 6] = 10.0  # Reasonable max distance
-            # target_low[:, 7] = 0.0  # Progress is 0-1
-            # target_high[:, 7] = 1.0
-            
             new_low = np.hstack([base_low, target_low])
             new_high = np.hstack([base_high, target_high])
             
@@ -235,16 +245,28 @@ class MultiTargetAviary(BaseRLAviary):
         self.targets_reached = np.zeros(self.NUM_DRONES, dtype=bool)
         self.collision_count = 0
         
-        # NEW: Reset distance tracking for delta rewards
+        # Reset distance tracking for delta rewards
         self.previous_distances = np.zeros(self.NUM_DRONES, dtype=np.float32)
         self.first_step = True
         
+        # NEW: Reset previous state tracking for stability penalties
+        self.previous_vel = np.zeros((self.NUM_DRONES, 3))
+        self.previous_rpy = np.zeros((self.NUM_DRONES, 3))
+        self.previous_ang_v = np.zeros((self.NUM_DRONES, 3))
+        
         obs, info = super().reset(seed=seed, options=options)
         
-        # NEW: Initialize previous distances with current distances
+        # Initialize previous distances with current distances
         positions = obs[:, 0:3]  # Get positions from observation
         current_targets = self.get_current_targets()
         self.previous_distances = np.linalg.norm(positions - current_targets, axis=1)
+        
+        # NEW: Initialize previous states for stability tracking
+        for i in range(self.NUM_DRONES):
+            state = self._getDroneStateVector(i)
+            self.previous_vel[i] = state[10:13]    # velocity in world frame
+            self.previous_rpy[i] = state[7:10]     # roll, pitch, yaw
+            self.previous_ang_v[i] = state[13:16]  # angular velocity
         
         # Add target information to info
         info.update({
@@ -271,7 +293,7 @@ class MultiTargetAviary(BaseRLAviary):
         positions = obs[:, 0:3]  # Shape: (NUM_DRONES, 3)
         current_targets = self.get_current_targets()
         
-        # Compute reward using delta distances
+        # Compute reward using delta distances AND stability penalties
         reward = self._compute_swarm_reward(positions, current_targets)
         
         # Update episode state
@@ -283,7 +305,7 @@ class MultiTargetAviary(BaseRLAviary):
             self.current_phase += 1
             self.step_in_phase = 0
             self.targets_reached.fill(False)
-            # NEW: Reset previous distances when switching phases
+            # Reset previous distances when switching phases
             current_distances = np.linalg.norm(positions - self.get_current_targets(), axis=1)
             self.previous_distances = current_distances.copy()
             if self.gui:
@@ -292,10 +314,6 @@ class MultiTargetAviary(BaseRLAviary):
         # Check termination conditions
         done = self._computeTerminated()
         truncated, unnatural = self._computeTruncated()
-        # if truncated and unnatural:
-        #     #print(f"Truncated due to unnatural conditions at step {self.total_steps}")
-        #     reward -= 20.0  # Penalize for unnatural truncation
-        #     truncated = False
         
         # Update info with additional metrics
         distances_to_targets = np.linalg.norm(positions - current_targets, axis=1)
@@ -315,56 +333,210 @@ class MultiTargetAviary(BaseRLAviary):
 
     def _compute_swarm_reward(self, positions, targets):
         """
-        Compute reward based on DELTA distances (progress toward targets).
-        Reward = progress_scale * (previous_distance - current_distance)
-        Positive reward for moving closer, negative for moving farther.
+        Compute reward based on DELTA distances (progress toward targets)
+        AND stability penalties for smooth flight.
         """
         reward = 0.0
         
+        # === ORIGINAL DELTA DISTANCE REWARDS ===
         # Calculate current distances
         current_distances = np.linalg.norm(positions - targets, axis=1)
         
-        reward += np.sum(2-current_distances)  # Negative distance reward
-        
-        # if self.first_step:
-        #     # On first step, no delta reward (no previous distance to compare)
-        #     # Could give small reward based on current distance to encourage initial movement
-        #     reward += np.sum(np.exp(-0.5 * current_distances))  # Small initial reward
-        #     self.first_step = False
-        # else:
-        #     # MAIN DELTA REWARD: reward progress toward targets
-        #     distance_deltas = self.previous_distances - current_distances
-        #     progress_reward = self.progress_scale * np.sum(distance_deltas)
-        #     reward += progress_reward
-            
-            # Optional: Add small bonus for being very close to targets
-            #close_bonus = np.sum(np.exp(-5.0 * current_distances))
-            #reward += close_bonus
+        base_distance_reward = np.sum(2-current_distances) #np.sum(np.exp(-2*current_distances))#np.sum(2-current_distances)  # Negative distance reward
+        reward += base_distance_reward
         
         # Update previous distances for next step
         self.previous_distances = current_distances.copy()
         
         # Bonus for reaching targets
+        target_bonus = 0.0
         newly_reached = (current_distances < self.tolerance) & (~self.targets_reached)
         if np.any(newly_reached):
-            reward += np.sum(newly_reached) * 10.0  # Large bonus for target completion
+            target_bonus = np.sum(newly_reached) * 10.0  # Large bonus for target completion
+            reward += target_bonus
             self.targets_reached |= newly_reached
         
-        # Optional collision avoidance (uncomment if desired)
-        collision_penalty = 0.0
-        for i in range(self.NUM_DRONES):
-            for j in range(i + 1, self.NUM_DRONES):
-                distance = np.linalg.norm(positions[i] - positions[j])
-                if distance < self.collision_distance:
-                    collision_penalty -= 20.0
-                    self.collision_count += 1
-        reward += collision_penalty
+        # collision_penalty = 0.0
+        # collision_threshold = 2 * self.collision_distance  # Start applying penalty at 3x collision distance
+
+        # for i in range(self.NUM_DRONES):
+        #     for j in range(i + 1, self.NUM_DRONES):
+        #         distance = np.linalg.norm(positions[i] - positions[j])
+                
+        #         if distance < collision_threshold:
+        #             # Smooth exponential penalty that increases as drones get closer
+        #             penalty_strength = 5.0 * np.exp(-2.0 * distance / self.collision_distance)
+        #             collision_penalty -= penalty_strength
+                    
+        #             # Count as collision only when very close (original threshold)
+        #             if distance < self.collision_distance:
+        #                 self.collision_count += 1
+        
+        # reward += collision_penalty
         
         # Phase completion bonus
+        phase_bonus = 0.0
         if np.all(self.targets_reached):
-            reward += 100.0
+            phase_bonus = 100.0
+            reward += phase_bonus
+        
+        # === NEW: DETAILED STABILITY PENALTIES ===
+        # total_velocity_penalty = 0.0
+        # total_tilt_penalty = 0.0
+        # total_angular_penalty = 0.0
+        
+        # # Detailed per-drone stability tracking for logging
+        # per_drone_vel_penalties = np.zeros(self.NUM_DRONES)
+        # per_drone_tilt_penalties = np.zeros(self.NUM_DRONES)
+        # per_drone_angular_penalties = np.zeros(self.NUM_DRONES)
+        # per_drone_vel_changes = np.zeros(self.NUM_DRONES)
+        # per_drone_tilt_changes = np.zeros(self.NUM_DRONES)
+        # per_drone_angular_magnitudes = np.zeros(self.NUM_DRONES)
+        
+        # total_stability_penalty=0
+        
+        # if self.total_steps > 0:  # Skip first step since no previous data
+        #     for i in range(self.NUM_DRONES):
+        #         # Get current state
+        #         state = self._getDroneStateVector(i)
+        #         current_vel = state[10:13]    # velocity in world frame
+        #         #current_rpy = state[7:10]     # roll, pitch, yaw
+        #         current_ang_v = state[13:16]  # angular velocity
+                
+        #         total_stability_penalty += - self.velocity_change_penalty * np.linalg.norm(current_vel) - self.velocity_change_penalty * np.linalg.norm(current_ang_v)
+                
+                
+        #         # # 1. Penalty for velocity changes (speed change)
+        #         # vel_change = np.linalg.norm(current_vel - self.previous_vel[i])
+        #         # velocity_penalty = -self.velocity_change_penalty * vel_change
+        #         # total_velocity_penalty += velocity_penalty
+        #         # per_drone_vel_penalties[i] = velocity_penalty
+        #         # per_drone_vel_changes[i] = vel_change
+                
+        #         # # 2. Penalty for tilt changes (roll and pitch changes)
+        #         # # Focus on roll and pitch changes (ignore yaw for now)
+        #         # rp_change = np.linalg.norm(current_rpy[0:2] - self.previous_rpy[i, 0:2])
+        #         # tilt_penalty = -self.tilt_change_penalty * rp_change
+        #         # total_tilt_penalty += tilt_penalty
+        #         # per_drone_tilt_penalties[i] = tilt_penalty
+        #         # per_drone_tilt_changes[i] = rp_change
+                
+        #         # # 3. Penalty for angular velocity (direct penalty on current angular velocity)
+        #         # ang_vel_magnitude = np.linalg.norm(current_ang_v)
+        #         # angular_penalty = -self.angular_velocity_penalty * ang_vel_magnitude
+        #         # total_angular_penalty += angular_penalty
+        #         # per_drone_angular_penalties[i] = angular_penalty
+        #         # per_drone_angular_magnitudes[i] = ang_vel_magnitude
+                
+        #         # # Update previous values for this drone
+        #         # self.previous_vel[i] = current_vel.copy()
+        #         # self.previous_rpy[i] = current_rpy.copy()
+        #         # self.previous_ang_v[i] = current_ang_v.copy()
+        # else:
+        #     # Initialize previous states on first step
+        #     for i in range(self.NUM_DRONES):
+        #         state = self._getDroneStateVector(i)
+        #         self.previous_vel[i] = state[10:13]
+        #         self.previous_rpy[i] = state[7:10]
+        #         self.previous_ang_v[i] = state[13:16]
+        
+        # #total_stability_penalty = total_velocity_penalty + total_tilt_penalty #+ total_angular_penalty
+        # reward += total_stability_penalty
+        
+        # #=== DETAILED LOGGING ===
+        # if self.total_steps % 120 == 0 and self.total_steps > 0:  # Print every 4 seconds
+        #     print(f"\n=== REWARD BREAKDOWN - Step {self.total_steps} ===")
+        #     print(f"Base Distance Reward:     {base_distance_reward:.3f}")
+        #     print(f"Target Bonus:             {target_bonus:.3f}")
+        #     #print(f"Collision Penalty:        {collision_penalty:.3f}")
+        #     print(f"Phase Completion Bonus:   {phase_bonus:.3f}")
+        #     print(f"--- STABILITY PENALTIES ---")
+        #     print(f"Total Velocity Penalty:   {total_velocity_penalty:.3f} (avg vel change: {np.mean(per_drone_vel_changes):.3f})")
+        #     print(f"Total Tilt Penalty:       {total_tilt_penalty:.3f} (avg tilt change: {np.mean(per_drone_tilt_changes):.3f})")
+        #     print(f"Total Angular Penalty:    {total_angular_penalty:.3f} (avg ang vel: {np.mean(per_drone_angular_magnitudes):.3f})")
+        #     print(f"TOTAL Stability Penalty:  {total_stability_penalty:.3f}")
+        #     print(f"--- PER-DRONE BREAKDOWN ---")
+        #     for i in range(self.NUM_DRONES):
+        #         print(f"Drone {i}: Vel={per_drone_vel_penalties[i]:.2f} (Δ={per_drone_vel_changes[i]:.3f}), "
+        #               f"Tilt={per_drone_tilt_penalties[i]:.2f} (Δ={per_drone_tilt_changes[i]:.3f}), "
+        #               f"AngVel={per_drone_angular_penalties[i]:.2f} (|ω|={per_drone_angular_magnitudes[i]:.3f})")
+        #     print(f"=== TOTAL REWARD: {reward:.3f} ===\n")
+        
+        # #Optional: Brief logging every second for less verbose output
+        # elif self.total_steps % 30 == 0 and self.total_steps > 0:  # Print every second
+        #     print(f"Step {self.total_steps}: Reward={reward:.2f} "
+        #           f"[Base: {base_distance_reward:.1f}, Stability: {total_stability_penalty:.2f} "
+        #           f"(Vel:{total_velocity_penalty:.2f}, Tilt:{total_tilt_penalty:.2f}, Ang:{total_angular_penalty:.2f})]")
         
         return reward
+
+    def get_stability_stats(self):
+        """
+        Get current stability statistics for external monitoring/logging.
+        
+        Returns
+        -------
+        dict
+            Dictionary containing detailed stability statistics.
+        """
+        if self.total_steps == 0:
+            return {'initialized': False}
+            
+        # Calculate current stability metrics
+        stability_stats = {
+            'initialized': True,
+            'step': self.total_steps,
+            'velocity_changes': [],
+            'tilt_changes': [],
+            'angular_velocities': [],
+            'per_drone_stats': []
+        }
+        
+        for i in range(self.NUM_DRONES):
+            state = self._getDroneStateVector(i)
+            current_vel = state[10:13]
+            current_rpy = state[7:10]
+            current_ang_v = state[13:16]
+            
+            if hasattr(self, 'previous_vel') and self.previous_vel is not None:
+                vel_change = np.linalg.norm(current_vel - self.previous_vel[i])
+                tilt_change = np.linalg.norm(current_rpy[0:2] - self.previous_rpy[i, 0:2])
+                ang_vel_mag = np.linalg.norm(current_ang_v)
+                
+                stability_stats['velocity_changes'].append(vel_change)
+                stability_stats['tilt_changes'].append(tilt_change)
+                stability_stats['angular_velocities'].append(ang_vel_mag)
+                
+                stability_stats['per_drone_stats'].append({
+                    'drone_id': i,
+                    'velocity_change': vel_change,
+                    'tilt_change': tilt_change,
+                    'angular_velocity_magnitude': ang_vel_mag,
+                    'velocity_penalty': -self.velocity_change_penalty * vel_change,
+                    'tilt_penalty': -self.tilt_change_penalty * tilt_change,
+                    'angular_penalty': -self.angular_velocity_penalty * ang_vel_mag
+                })
+        
+        # Add aggregate statistics
+        if stability_stats['velocity_changes']:
+            stability_stats['avg_velocity_change'] = np.mean(stability_stats['velocity_changes'])
+            stability_stats['max_velocity_change'] = np.max(stability_stats['velocity_changes'])
+            stability_stats['avg_tilt_change'] = np.mean(stability_stats['tilt_changes'])
+            stability_stats['max_tilt_change'] = np.max(stability_stats['tilt_changes'])
+            stability_stats['avg_angular_velocity'] = np.mean(stability_stats['angular_velocities'])
+            stability_stats['max_angular_velocity'] = np.max(stability_stats['angular_velocities'])
+            
+            # Calculate total penalties
+            total_vel_penalty = -self.velocity_change_penalty * np.sum(stability_stats['velocity_changes'])
+            total_tilt_penalty = -self.tilt_change_penalty * np.sum(stability_stats['tilt_changes'])
+            total_ang_penalty = -self.angular_velocity_penalty * np.sum(stability_stats['angular_velocities'])
+            
+            stability_stats['total_velocity_penalty'] = total_vel_penalty
+            stability_stats['total_tilt_penalty'] = total_tilt_penalty
+            stability_stats['total_angular_penalty'] = total_ang_penalty
+            stability_stats['total_stability_penalty'] = total_vel_penalty + total_tilt_penalty + total_ang_penalty
+        
+        return stability_stats
 
     # =====================================================================
     # REQUIRED ABSTRACT METHODS FROM BaseRLAviary/BaseAviary
@@ -398,20 +570,14 @@ class MultiTargetAviary(BaseRLAviary):
         if self.total_steps >= self.max_episode_steps:
             return True, False
             
-        # # Episode truncated if any drone goes too far out of bounds
+        # Episode truncated if any drone goes too far out of bounds
         for i in range(self.NUM_DRONES):
             state = self._getDroneStateVector(i)
-            #print(f"Drone {i} state: {state}")
             position = state[0:3]
             
             # Check position bounds
-            if (#abs(position[0]) > 5.0 or abs(position[1]) > 5.0 or 
-                position[2] > 4.0 or position[2] < 0.05):
+            if (position[2] > 4.0 or position[2] < 0.05):
                 return True, True
-                
-            # # Check orientation bounds (too tilted)
-            # if abs(state[7]) > 0.8 or abs(state[8]) > 0.8:  # ~45 degrees
-            #     return True
                 
         return False, False
 
@@ -434,16 +600,20 @@ class MultiTargetAviary(BaseRLAviary):
         }
 
 
-# Test the environment with RPM actions and delta rewards
+# Test the environment with RPM actions, delta rewards, and detailed stability penalty logging
 if __name__ == "__main__":
-    print("Testing MultiTargetAviary with ActionType.RPM and DELTA distance rewards...")
+    print("Testing MultiTargetAviary with ActionType.RPM, DELTA distance rewards, and DETAILED STABILITY PENALTY LOGGING...")
     
     env = MultiTargetAviary(
         num_drones=4,
         obs=ObservationType.KIN,
         act=ActionType.RPM,  # Using RPM actions (4 values per drone)
         gui=False,
-        progress_scale=10.0  # NEW: Scale factor for delta rewards
+        progress_scale=10.0,  # Scale factor for delta rewards
+        # NEW: Stability penalty coefficients
+        velocity_change_penalty=0.15,    # Slightly higher for demonstration
+        tilt_change_penalty=0.12,
+        angular_velocity_penalty=0.08
     )
     
     print(f"Action space: {env.action_space}")
@@ -459,17 +629,36 @@ if __name__ == "__main__":
     print(f"Sample action shape: {action.shape}")  # Should be (4, 4)
     print(f"Sample action:\n{action}")
     
-    # Test a few steps to see delta rewards in action
-    for i in range(5):
+    print("\n=== TESTING STABILITY PENALTY LOGGING ===")
+    print("Running steps to demonstrate detailed stability penalty breakdown...")
+    
+    # Test a few steps to see detailed stability logging
+    for i in range(150):  # Run enough steps to see detailed logging
         action = env.action_space.sample()
         obs, reward, done, truncated, info = env.step(action)
-        print(f"\nStep {i+1}:")
-        print(f"  Reward: {reward:.3f}")
-        print(f"  Mean distance to targets: {info['mean_distance_to_targets']:.3f}")
-        print(f"  Previous distances: {env.previous_distances}")
+        
+        # Brief output for each step
+        if i < 10 or i % 30 == 0:
+            print(f"Step {i+1}: Total Reward: {reward:.3f}, Mean distance: {info['mean_distance_to_targets']:.3f}")
+        
+        # Demonstrate stability stats API
+        if i == 60:  # Show detailed stats at step 60
+            stats = env.get_stability_stats()
+            print(f"\n=== STABILITY STATS API DEMO (Step {i+1}) ===")
+            print(f"Average velocity change: {stats.get('avg_velocity_change', 0):.4f}")
+            print(f"Average tilt change: {stats.get('avg_tilt_change', 0):.4f}")
+            print(f"Average angular velocity: {stats.get('avg_angular_velocity', 0):.4f}")
+            print(f"Total stability penalty: {stats.get('total_stability_penalty', 0):.3f}")
+            print("==========================================\n")
         
         if done or truncated:
             break
     
     env.close()
-    print("\nDelta distance reward test completed successfully!")
+    print("\nMultiTargetAviary with detailed stability penalty logging test completed successfully!")
+    print("\nLOGGING FEATURES:")
+    print("✅ Detailed reward breakdown every 4 seconds (120 steps)")
+    print("✅ Brief stability logging every 1 second (30 steps)")
+    print("✅ Per-drone penalty breakdown")
+    print("✅ Raw change values for debugging")
+    print("✅ API for external stability monitoring")
