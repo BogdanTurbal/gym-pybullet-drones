@@ -41,7 +41,7 @@ class MultiTargetAviary(BaseRLAviary):
         # NEW: Stability penalty coefficients
         velocity_change_penalty: float = 0.05,
         tilt_change_penalty: float = 0.05,
-        angular_velocity_penalty: float = 0.1,
+        angular_velocity_penalty: float = 0.025,
     ):
         # Create default target sequence if none provided
         if target_sequence is None:
@@ -356,24 +356,6 @@ class MultiTargetAviary(BaseRLAviary):
             reward += target_bonus
             self.targets_reached |= newly_reached
         
-        # collision_penalty = 0.0
-        # collision_threshold = 2 * self.collision_distance  # Start applying penalty at 3x collision distance
-
-        # for i in range(self.NUM_DRONES):
-        #     for j in range(i + 1, self.NUM_DRONES):
-        #         distance = np.linalg.norm(positions[i] - positions[j])
-                
-        #         if distance < collision_threshold:
-        #             # Smooth exponential penalty that increases as drones get closer
-        #             penalty_strength = 5.0 * np.exp(-2.0 * distance / self.collision_distance)
-        #             collision_penalty -= penalty_strength
-                    
-        #             # Count as collision only when very close (original threshold)
-        #             if distance < self.collision_distance:
-        #                 self.collision_count += 1
-        
-        # reward += collision_penalty
-        
         # Phase completion bonus
         phase_bonus = 0.0
         if np.all(self.targets_reached):
@@ -381,92 +363,23 @@ class MultiTargetAviary(BaseRLAviary):
             reward += phase_bonus
         
         # === NEW: DETAILED STABILITY PENALTIES ===
-        # total_velocity_penalty = 0.0
+        total_velocity_penalty = 0.0
         # total_tilt_penalty = 0.0
-        # total_angular_penalty = 0.0
+        total_angular_penalty = 0.0
         
-        # # Detailed per-drone stability tracking for logging
-        # per_drone_vel_penalties = np.zeros(self.NUM_DRONES)
-        # per_drone_tilt_penalties = np.zeros(self.NUM_DRONES)
-        # per_drone_angular_penalties = np.zeros(self.NUM_DRONES)
-        # per_drone_vel_changes = np.zeros(self.NUM_DRONES)
-        # per_drone_tilt_changes = np.zeros(self.NUM_DRONES)
-        # per_drone_angular_magnitudes = np.zeros(self.NUM_DRONES)
+        total_stability_penalty=0
         
-        # total_stability_penalty=0
-        
-        # if self.total_steps > 0:  # Skip first step since no previous data
-        #     for i in range(self.NUM_DRONES):
+        if self.total_steps > 0:  # Skip first step since no previous data
+            for i in range(self.NUM_DRONES):
         #         # Get current state
-        #         state = self._getDroneStateVector(i)
-        #         current_vel = state[10:13]    # velocity in world frame
-        #         #current_rpy = state[7:10]     # roll, pitch, yaw
-        #         current_ang_v = state[13:16]  # angular velocity
+                state = self._getDroneStateVector(i)
+                current_vel = state[10:13]    # velocity in world frame
+                #current_rpy = state[7:10]     # roll, pitch, yaw
+                current_ang_v = state[13:16]  # angular velocity
                 
-        #         total_stability_penalty += - self.velocity_change_penalty * np.linalg.norm(current_vel) - self.velocity_change_penalty * np.linalg.norm(current_ang_v)
-                
-                
-        #         # # 1. Penalty for velocity changes (speed change)
-        #         # vel_change = np.linalg.norm(current_vel - self.previous_vel[i])
-        #         # velocity_penalty = -self.velocity_change_penalty * vel_change
-        #         # total_velocity_penalty += velocity_penalty
-        #         # per_drone_vel_penalties[i] = velocity_penalty
-        #         # per_drone_vel_changes[i] = vel_change
-                
-        #         # # 2. Penalty for tilt changes (roll and pitch changes)
-        #         # # Focus on roll and pitch changes (ignore yaw for now)
-        #         # rp_change = np.linalg.norm(current_rpy[0:2] - self.previous_rpy[i, 0:2])
-        #         # tilt_penalty = -self.tilt_change_penalty * rp_change
-        #         # total_tilt_penalty += tilt_penalty
-        #         # per_drone_tilt_penalties[i] = tilt_penalty
-        #         # per_drone_tilt_changes[i] = rp_change
-                
-        #         # # 3. Penalty for angular velocity (direct penalty on current angular velocity)
-        #         # ang_vel_magnitude = np.linalg.norm(current_ang_v)
-        #         # angular_penalty = -self.angular_velocity_penalty * ang_vel_magnitude
-        #         # total_angular_penalty += angular_penalty
-        #         # per_drone_angular_penalties[i] = angular_penalty
-        #         # per_drone_angular_magnitudes[i] = ang_vel_magnitude
-                
-        #         # # Update previous values for this drone
-        #         # self.previous_vel[i] = current_vel.copy()
-        #         # self.previous_rpy[i] = current_rpy.copy()
-        #         # self.previous_ang_v[i] = current_ang_v.copy()
-        # else:
-        #     # Initialize previous states on first step
-        #     for i in range(self.NUM_DRONES):
-        #         state = self._getDroneStateVector(i)
-        #         self.previous_vel[i] = state[10:13]
-        #         self.previous_rpy[i] = state[7:10]
-        #         self.previous_ang_v[i] = state[13:16]
-        
-        # #total_stability_penalty = total_velocity_penalty + total_tilt_penalty #+ total_angular_penalty
-        # reward += total_stability_penalty
-        
-        # #=== DETAILED LOGGING ===
-        # if self.total_steps % 120 == 0 and self.total_steps > 0:  # Print every 4 seconds
-        #     print(f"\n=== REWARD BREAKDOWN - Step {self.total_steps} ===")
-        #     print(f"Base Distance Reward:     {base_distance_reward:.3f}")
-        #     print(f"Target Bonus:             {target_bonus:.3f}")
-        #     #print(f"Collision Penalty:        {collision_penalty:.3f}")
-        #     print(f"Phase Completion Bonus:   {phase_bonus:.3f}")
-        #     print(f"--- STABILITY PENALTIES ---")
-        #     print(f"Total Velocity Penalty:   {total_velocity_penalty:.3f} (avg vel change: {np.mean(per_drone_vel_changes):.3f})")
-        #     print(f"Total Tilt Penalty:       {total_tilt_penalty:.3f} (avg tilt change: {np.mean(per_drone_tilt_changes):.3f})")
-        #     print(f"Total Angular Penalty:    {total_angular_penalty:.3f} (avg ang vel: {np.mean(per_drone_angular_magnitudes):.3f})")
-        #     print(f"TOTAL Stability Penalty:  {total_stability_penalty:.3f}")
-        #     print(f"--- PER-DRONE BREAKDOWN ---")
-        #     for i in range(self.NUM_DRONES):
-        #         print(f"Drone {i}: Vel={per_drone_vel_penalties[i]:.2f} (Δ={per_drone_vel_changes[i]:.3f}), "
-        #               f"Tilt={per_drone_tilt_penalties[i]:.2f} (Δ={per_drone_tilt_changes[i]:.3f}), "
-        #               f"AngVel={per_drone_angular_penalties[i]:.2f} (|ω|={per_drone_angular_magnitudes[i]:.3f})")
-        #     print(f"=== TOTAL REWARD: {reward:.3f} ===\n")
-        
-        # #Optional: Brief logging every second for less verbose output
-        # elif self.total_steps % 30 == 0 and self.total_steps > 0:  # Print every second
-        #     print(f"Step {self.total_steps}: Reward={reward:.2f} "
-        #           f"[Base: {base_distance_reward:.1f}, Stability: {total_stability_penalty:.2f} "
-        #           f"(Vel:{total_velocity_penalty:.2f}, Tilt:{total_tilt_penalty:.2f}, Ang:{total_angular_penalty:.2f})]")
+                total_stability_penalty += - self.velocity_change_penalty * np.linalg.norm(current_vel) - self.angular_velocity_penalty * np.linalg.norm(current_ang_v)
+        reward += total_stability_penalty
+    
         
         return reward
 
@@ -576,7 +489,7 @@ class MultiTargetAviary(BaseRLAviary):
             position = state[0:3]
             
             # Check position bounds
-            if (position[2] > 4.0 or position[2] < 0.05):
+            if (position[2] > 4.0 or position[2] < 0.1):
                 return True, True
                 
         return False, False

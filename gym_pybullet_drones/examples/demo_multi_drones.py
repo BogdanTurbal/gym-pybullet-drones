@@ -34,8 +34,8 @@ DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'demo_results'
 DEFAULT_OBS           = ObservationType('kin')
 DEFAULT_ACT           = ActionType('pid')  # Changed from 'rpm' to match training
-DEFAULT_DRONES        = 4
-DEFAULT_DURATION_SEC  = 3.0  # Match training script
+DEFAULT_DRONES        = 1
+DEFAULT_DURATION_SEC  = 6.0  # Match training script
 
 
 class DemoMetricsCollector:
@@ -170,22 +170,32 @@ def create_target_sequence(num_drones=4, scale=1.2):
     if num_drones == 4:
         # Use the same target sequence as in training
         targets = np.array([
-            # Phase 0: Simple horizontal line (easiest formation)
-            [[-1.5*scale, 0.0, 1.2], [-0.5*scale, 0.0, 1.2], 
-             [ 0.5*scale, 0.0, 1.2], [ 1.5*scale, 0.0, 1.2]],
+            # Simple target: all drones go to same point to start
+            [[ scale,  scale, 1.0]],
             
-            # Phase 1: Wide square formation  
-            [[-scale, -scale, 1.2], [ scale, -scale, 1.2], 
-             [ scale,  scale, 1.2], [-scale,  scale, 1.2]],
+            [[ -scale,  scale, 2.0]],
             
-            # Phase 2: Diamond formation (45° rotation)
-            [[ 0.0, -1.4*scale, 1.4], [ 1.4*scale, 0.0, 1.4], 
-             [ 0.0,  1.4*scale, 1.4], [-1.4*scale, 0.0, 1.4]],
+            [[ scale,  -scale, 1.5]],
             
-            # Phase 3: Tight square formation (precision training)
-            [[-0.5*scale, -0.5*scale, 1.0], [ 0.5*scale, -0.5*scale, 1.0], 
-             [ 0.5*scale,  0.5*scale, 1.0], [-0.5*scale,  0.5*scale, 1.0]]
+            [[ -scale,  -scale, 0.5]],
         ])
+        # targets = np.array([
+        #     # Phase 0: Simple horizontal line (easiest formation)
+        #     [[-1.5*scale, 0.0, 1.2], [-0.5*scale, 0.0, 1.2], 
+        #      [ 0.5*scale, 0.0, 1.2], [ 1.5*scale, 0.0, 1.2]],
+            
+        #     # Phase 1: Wide square formation  
+        #     [[-scale, -scale, 1.2], [ scale, -scale, 1.2], 
+        #      [ scale,  scale, 1.2], [-scale,  scale, 1.2]],
+            
+        #     # Phase 2: Diamond formation (45° rotation)
+        #     [[ 0.0, -1.4*scale, 1.4], [ 1.4*scale, 0.0, 1.4], 
+        #      [ 0.0,  1.4*scale, 1.4], [-1.4*scale, 0.0, 1.4]],
+            
+        #     # Phase 3: Tight square formation (precision training)
+        #     [[-0.5*scale, -0.5*scale, 1.0], [ 0.5*scale, -0.5*scale, 1.0], 
+        #      [ 0.5*scale,  0.5*scale, 1.0], [-0.5*scale,  0.5*scale, 1.0]]
+        # ])
         # targets = np.array([
         #     # Simple target: all drones go to same point to start
         #     [[ scale,  scale, 1.0], [ scale,  scale, 1.0],
@@ -488,7 +498,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
         return
 
     # Create target sequence matching training script
-    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=1.0)  # Use scale=1.0 as in training
+    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=2.0)  # Use scale=1.0 as in training
     steps_per_target = int(DEFAULT_DURATION_SEC * freq)
     
     print(f"[INFO] Target sequence shape: {target_sequence.shape}")

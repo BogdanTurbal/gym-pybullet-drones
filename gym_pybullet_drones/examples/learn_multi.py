@@ -40,8 +40,8 @@ DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'results'
 DEFAULT_OBS           = ObservationType('kin')
 DEFAULT_ACT           = ActionType('pid')#ActionType('one_d_rpm') one_d_pid
-DEFAULT_DRONES        = 4
-DEFAULT_DURATION_SEC  = 3.0
+DEFAULT_DRONES        = 1
+DEFAULT_DURATION_SEC  = 6.0
 NUM_VEC = 1
 
 # Multi-agent architecture settings
@@ -195,13 +195,13 @@ def create_target_sequence(num_drones=4, scale=1.2):
     if num_drones == 4:
         targets = np.array([
             # Simple target: all drones go to same point to start
-            # [[ scale,  scale, 1.0]],
+            [[ scale,  scale, 1.0]],
             
-            # [[ scale,  scale, 1.0]],
+            [[ -scale,  scale, 2.0]],
             
-            # [[ scale,  scale, 1.0]],
+            [[ scale,  -scale, 1.5]],
             
-            # [[ scale,  scale, 1.0]],
+            [[ -scale,  -scale, 0.5]],
         ])
         # targets = np.array([
         #     # Simple target: all drones go to same point to start
@@ -217,23 +217,23 @@ def create_target_sequence(num_drones=4, scale=1.2):
         #     [[ scale,  scale, 1.0], [ scale,  scale, 1.0], 
         #      [ scale,  scale, 1.0], [ scale,  scale, 1.0]],
         # ])
-        targets = np.array([
-            # Phase 0: Simple horizontal line (easiest formation)
-            [[-1.5*scale, 0.0, 1.2], [-0.5*scale, 0.0, 1.2], 
-             [ 0.5*scale, 0.0, 1.2], [ 1.5*scale, 0.0, 1.2]],
+        # targets = np.array([
+        #     # Phase 0: Simple horizontal line (easiest formation)
+        #     [[-1.5*scale, 0.0, 1.2], [-0.5*scale, 0.0, 1.2], 
+        #      [ 0.5*scale, 0.0, 1.2], [ 1.5*scale, 0.0, 1.2]],
             
-            # Phase 1: Wide square formation  
-            [[-scale, -scale, 1.2], [ scale, -scale, 1.2], 
-             [ scale,  scale, 1.2], [-scale,  scale, 1.2]],
+        #     # Phase 1: Wide square formation  
+        #     [[-scale, -scale, 1.2], [ scale, -scale, 1.2], 
+        #      [ scale,  scale, 1.2], [-scale,  scale, 1.2]],
             
-            # Phase 2: Diamond formation (45° rotation)
-            [[ 0.0, -1.4*scale, 1.4], [ 1.4*scale, 0.0, 1.4], 
-             [ 0.0,  1.4*scale, 1.4], [-1.4*scale, 0.0, 1.4]],
+        #     # Phase 2: Diamond formation (45° rotation)
+        #     [[ 0.0, -1.4*scale, 1.4], [ 1.4*scale, 0.0, 1.4], 
+        #      [ 0.0,  1.4*scale, 1.4], [-1.4*scale, 0.0, 1.4]],
             
-            # Phase 3: Tight square formation (precision training)
-            [[-0.5*scale, -0.5*scale, 1.0], [ 0.5*scale, -0.5*scale, 1.0], 
-             [ 0.5*scale,  0.5*scale, 1.0], [-0.5*scale,  0.5*scale, 1.0]]
-        ])
+        #     # Phase 3: Tight square formation (precision training)
+        #     [[-0.5*scale, -0.5*scale, 1.0], [ 0.5*scale, -0.5*scale, 1.0], 
+        #      [ 0.5*scale,  0.5*scale, 1.0], [-0.5*scale,  0.5*scale, 1.0]]
+        # ])
     else:
         # Create circular formations for other numbers of drones
         targets = []
