@@ -1,0 +1,80 @@
+_wandb:
+    value:
+        cli_version: 0.19.11
+        code_path: code/gym_pybullet_drones/examples/learn_multi_sac.py
+        m: []
+        python_version: 3.10.5
+        t:
+            "1":
+                - 1
+                - 55
+            "2":
+                - 1
+                - 55
+            "3":
+                - 13
+                - 15
+                - 16
+                - 23
+                - 35
+                - 55
+            "4": 3.10.5
+            "5": 0.19.11
+            "8":
+                - 2
+                - 5
+            "12": 0.19.11
+            "13": darwin-arm64
+act_type:
+    value: RPM
+algo:
+    value: SAC
+architecture:
+    value: MultiAgent_SAC
+batch_size:
+    value: 256
+buffer_size:
+    value: 1000000
+duration_sec:
+    value: 3
+ent_coef:
+    value: auto
+eval_freq:
+    value: 25000
+extractor_type:
+    value: matrix
+features_dim:
+    value: 64
+gamma:
+    value: 0.99
+learning_rate:
+    value: 0.0003
+learning_starts:
+    value: 10000
+log_freq:
+    value: 500
+min_reward_improvement:
+    value: 10
+num_drones:
+    value: 4
+obs_type:
+    value: KIN
+paper_reward_hyperparameters:
+    value:
+        bounds_penalty: 6
+        crash_penalty: 12
+        lambda_1: 15
+        lambda_2: 1
+        lambda_3: 0.3
+        lambda_4: 0.005
+        lambda_5: 0.05
+reward_function:
+    value: paper_based
+save_freq:
+    value: 25000
+tau:
+    value: 0.01
+total_timesteps:
+    value: 1000000
+train_freq:
+    value: 1

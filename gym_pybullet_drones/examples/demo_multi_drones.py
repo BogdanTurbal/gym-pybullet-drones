@@ -34,7 +34,7 @@ DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'demo_results'
 DEFAULT_OBS           = ObservationType('kin')
 DEFAULT_ACT           = ActionType('pid')  # Changed from 'rpm' to match training
-DEFAULT_DRONES        = 1
+DEFAULT_DRONES        = 4
 DEFAULT_DURATION_SEC  = 3.0  # Match training script
 
 
@@ -170,11 +170,21 @@ def create_target_sequence(num_drones=4, scale=1.2):
     if True: #num_drones == 1:
         # Use the same target sequence as in training
         targets = np.array([
-            # Simple target: all drones go to same point to start
-            [[ scale,  scale, 0.5]],
-            [[ scale,  scale, 0.5]],
-            [[ scale,  scale, 0.5]],
-            [[ scale,  scale, 0.5]],
+            # Phase 0: Simple line formation (good for progress reward)
+            [[-1.0*scale, 0.0, 1.2], [-0.3*scale, 0.0, 1.2], 
+             [ 0.3*scale, 0.0, 1.2], [ 1.0*scale, 0.0, 1.2]],
+            
+            # Phase 1: Square formation (tests alignment and coordination)
+            [[-scale, -scale, 1.5], [ scale, -scale, 1.5], 
+             [ scale,  scale, 1.5], [-scale,  scale, 1.5]],
+            
+            # Phase 2: Diamond formation (tests precise control)
+            [[ 0.0, -1.2*scale, 1.8], [ 1.2*scale, 0.0, 1.8], 
+             [ 0.0,  1.2*scale, 1.8], [-1.2*scale, 0.0, 1.8]],
+            
+            # Phase 3: Compact formation (final precision test)
+            [[-0.4*scale, -0.4*scale, 1.3], [ 0.4*scale, -0.4*scale, 1.3], 
+             [ 0.4*scale,  0.4*scale, 1.3], [-0.4*scale,  0.4*scale, 1.3]]
         ])
         # targets = np.array([
         #     # Simple target: all drones go to same point to start
