@@ -31,20 +31,20 @@ class MultiAgentMatrixExtractor(BaseFeaturesExtractor):
         
         # Enhanced agent encoder to handle larger observation space
         # More capacity for the larger feature space with RPM actions
-        hidden_dim = min(256, max(128, self.agent_obs_dim // 2))  # Adaptive hidden size
+        hidden_dim = 128#min(256, max(128, self.agent_obs_dim // 2))  # Adaptive hidden size
         
         self.agent_encoder = nn.Sequential(
             nn.Linear(self.agent_obs_dim, hidden_dim),
             nn.ReLU(),
-            nn.LayerNorm(hidden_dim),
+            #nn.LayerNorm(hidden_dim),
             nn.Dropout(0.1),  # Add dropout for regularization with larger networks
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.LayerNorm(hidden_dim),
-            nn.Dropout(0.1),
+            # nn.Linear(hidden_dim, hidden_dim),
+            # nn.ReLU(),
+            # nn.LayerNorm(hidden_dim),
+            # nn.Dropout(0.1),
             nn.Linear(hidden_dim, 128),
             nn.ReLU(),
-            nn.LayerNorm(128),
+            #nn.LayerNorm(128),
             nn.Linear(128, 32),
             nn.ReLU()
         )
@@ -54,12 +54,12 @@ class MultiAgentMatrixExtractor(BaseFeaturesExtractor):
         self.aggregator = nn.Sequential(
             nn.Linear(aggregation_input_dim, 128),
             nn.ReLU(),
-            nn.LayerNorm(128),
+            #nn.LayerNorm(128),
             nn.Dropout(0.1),
             nn.Linear(128, features_dim),
             nn.ReLU(),
-            nn.LayerNorm(features_dim),
-            nn.Dropout(0.1),
+            #nn.LayerNorm(features_dim),
+            #nn.Dropout(0.1),
             nn.Linear(features_dim, features_dim),
         )
         
@@ -79,6 +79,8 @@ class MultiAgentMatrixExtractor(BaseFeaturesExtractor):
         
         # Reshape to (batch_size * num_agents, agent_obs_dim)
         obs_flat = observations.view(-1, self.agent_obs_dim)
+        # print(obs_flat.shape)
+        # print(obs_flat)
         
         # Encode each agent's observation
         agent_features = self.agent_encoder(obs_flat)  # (batch_size * num_agents, 64)
@@ -221,12 +223,12 @@ class MultiAgentMeanPoolExtractor(BaseFeaturesExtractor):
             nn.Linear(self.agent_obs_dim, hidden_dim),
             nn.ReLU(),
             nn.LayerNorm(hidden_dim),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_dim, 128),
-            nn.ReLU(),
-            nn.LayerNorm(128),
-            nn.Dropout(0.1),
-            nn.Linear(128, 64),
+            #nn.Dropout(0.1),
+            nn.Linear(hidden_dim, 64),
+            # nn.ReLU(),
+            # nn.LayerNorm(128),
+            # nn.Dropout(0.1),
+            # nn.Linear(128, 64),
             nn.ReLU(),
             nn.LayerNorm(64),
             nn.Linear(64, 64),
@@ -316,6 +318,9 @@ def create_multiagent_ppo_model(env, extractor_type="matrix", features_dim=256, 
     # Merge with any additional policy kwargs
     if "policy_kwargs" in ppo_kwargs:
         policy_kwargs.update(ppo_kwargs.pop("policy_kwargs"))
+        
+    # ppo_kwargs['use_sde'] = True
+    # ppo_kwargs['normalize_advantage'] = True
     
     # Create PPO model
     model = PPO(

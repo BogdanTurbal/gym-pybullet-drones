@@ -167,18 +167,25 @@ class DemoMetricsCollector:
 
 def create_target_sequence(num_drones=4, scale=1.2):
     """Create target sequence matching the training script"""
-    if num_drones == 1:
+    if True: #num_drones == 1:
         # Use the same target sequence as in training
         targets = np.array([
             # Simple target: all drones go to same point to start
-            [[ scale,  scale, 1.0]],
-            
-            [[ -scale,  scale, 2.0]],
-            
-            [[ scale,  -scale, 1.5]],
-            
-            [[ -scale,  -scale, 0.5]],
+            [[ scale,  scale, 0.5]],
+            [[ scale,  scale, 0.5]],
+            [[ scale,  scale, 0.5]],
+            [[ scale,  scale, 0.5]],
         ])
+        # targets = np.array([
+        #     # Simple target: all drones go to same point to start
+        #     [[ scale,  scale, 1.0]],
+            
+        #     [[ -scale,  scale, 2.0]],
+            
+        #     [[ scale,  -scale, 1.5]],
+            
+        #     [[ -scale,  -scale, 0.5]],
+        # ])
         # targets = np.array([
         #     # Phase 0: Simple horizontal line (easiest formation)
         #     [[-1.5*scale, 0.0, 1.2], [-0.5*scale, 0.0, 1.2], 
@@ -498,7 +505,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
         return
 
     # Create target sequence matching training script
-    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=1.0)  # Use scale=1.0 as in training
+    target_sequence = create_target_sequence(DEFAULT_DRONES, scale=0.0)  # Use scale=1.0 as in training
     steps_per_target = int(DEFAULT_DURATION_SEC * freq)
     
     print(f"[INFO] Target sequence shape: {target_sequence.shape}")
@@ -624,6 +631,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
                     # Log progress every 100 steps
                     if i % 100 == 0:
                         phase = info.get('phase', -1)
+                        
                         targets_reached = np.sum(info.get('targets_reached', []))
                         dist = np.mean(info.get('distance_to_targets', [0]))
                         print(f"Step {i:4d} | Phase {phase:2d} | Targets: {targets_reached} | "

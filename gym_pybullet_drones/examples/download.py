@@ -1,8 +1,7 @@
 import wandb
 run = wandb.init()
-artifact = run.use_artifact('bogdan-turbal-y/drone-swarm-rpm-artifacts/best_model_reward_-65.38_improvement_3.39:v0', type='model')
+artifact = run.use_artifact('bogdan-turbal-y/drone-swarm-rpm-artifacts/best_model_reward_-94.23_improvement_1.05:v0', type='model')
 artifact_dir = artifact.download()
-print(artifact_dir)
 
 
 # /Users/bohdan.turbal/Desktop/dimploma_thesis/gym-pybullet-drones/gym_pybullet_drones/examples/artifacts/model_eval_15:v1/model_eval_15_step_375000_reward_50.66_20250526_234035.zip
