@@ -323,11 +323,11 @@ def run(output_folder, gui, record_video, plot, local, wandb_project, wandb_enti
         'duration_sec': DEFAULT_DURATION_SEC,
         'total_timesteps': int(2e6) if local else int(5e5),  # Longer training for paper-based reward
         'learning_rate': 1e-3,  # Slightly lower for stability with new reward
-        'batch_size': 128 // NUM_VEC,  # Larger batch size for stability
+        'batch_size': 128, #// NUM_VEC,  # Larger batch size for stability
         'n_epochs': 10,
         'gamma': 0.99,  # Slightly lower gamma for more immediate rewards
         'gae_lambda': 0.95,
-        'n_steps': 2048 // NUM_VEC,
+        'n_steps': 2048, #// NUM_VEC,
         'clip_range': 0.15,  # Slightly higher for exploration with new reward
         'ent_coef': 0.001,  # Lower entropy for more focused learning
         'eval_freq': 25000, #// NUM_VEC,
