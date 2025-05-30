@@ -35,29 +35,29 @@ class MultiAgentMatrixExtractor(BaseFeaturesExtractor):
         
         self.agent_encoder = nn.Sequential(
             nn.Linear(self.agent_obs_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             #nn.LayerNorm(hidden_dim),
-            nn.Dropout(0.1),  # Add dropout for regularization with larger networks
+           #nn.Dropout(0.1),  # Add dropout for regularization with larger networks
             # nn.Linear(hidden_dim, hidden_dim),
-            # nn.ReLU(),
+            # nn.Tanh(),
             # nn.LayerNorm(hidden_dim),
             # nn.Dropout(0.1),
             nn.Linear(hidden_dim, 128),
-            nn.ReLU(),
+            nn.Tanh(),
             #nn.LayerNorm(128),
             nn.Linear(128, 32),
-            nn.ReLU()
+            nn.Tanh()
         )
         
         # Final aggregation network
         aggregation_input_dim = 32 * self.num_agents
         self.aggregator = nn.Sequential(
             nn.Linear(aggregation_input_dim, 128),
-            nn.ReLU(),
+            nn.Tanh(),
             #nn.LayerNorm(128),
-            nn.Dropout(0.1),
+            #nn.Dropout(0.1),
             nn.Linear(128, features_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             #nn.LayerNorm(features_dim),
             #nn.Dropout(0.1),
             nn.Linear(features_dim, features_dim),
@@ -114,18 +114,18 @@ class MultiAgentSelfAttentionExtractor(BaseFeaturesExtractor):
         
         self.agent_encoder = nn.Sequential(
             nn.Linear(self.agent_obs_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.LayerNorm(hidden_dim),
             nn.Dropout(0.1),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.LayerNorm(hidden_dim),
             nn.Dropout(0.1),
             nn.Linear(hidden_dim, 128),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.LayerNorm(128),
             nn.Linear(128, 64),
-            nn.ReLU()
+            nn.Tanh()
         )
         
         # Multi-head self-attention mechanism
@@ -141,11 +141,11 @@ class MultiAgentSelfAttentionExtractor(BaseFeaturesExtractor):
         # Final aggregation network
         self.aggregator = nn.Sequential(
             nn.Linear(64 * self.num_agents, features_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.LayerNorm(features_dim),
             nn.Dropout(0.1),
             nn.Linear(features_dim, features_dim),
-            nn.ReLU()
+            nn.Tanh()
         )
         
         self._features_dim = features_dim
@@ -221,18 +221,18 @@ class MultiAgentMeanPoolExtractor(BaseFeaturesExtractor):
         
         self.agent_encoder = nn.Sequential(
             nn.Linear(self.agent_obs_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.LayerNorm(hidden_dim),
             #nn.Dropout(0.1),
             nn.Linear(hidden_dim, 64),
-            # nn.ReLU(),
+            # nn.Tanh(),
             # nn.LayerNorm(128),
             # nn.Dropout(0.1),
             # nn.Linear(128, 64),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.LayerNorm(64),
             nn.Linear(64, 64),
-            nn.ReLU()
+            nn.Tanh()
         )
         
         # Global features (mean + max + individual agent features)
@@ -243,11 +243,11 @@ class MultiAgentMeanPoolExtractor(BaseFeaturesExtractor):
         
         self.global_processor = nn.Sequential(
             nn.Linear(global_dim, features_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.LayerNorm(features_dim),
             nn.Dropout(0.1),
             nn.Linear(features_dim, features_dim),
-            nn.ReLU()
+            nn.Tanh()
         )
         
         self._features_dim = features_dim

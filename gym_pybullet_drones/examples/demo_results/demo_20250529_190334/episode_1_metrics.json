@@ -1,0 +1,31 @@
+{
+  "total_reward": 131267.55827206958,
+  "total_steps": 58,
+  "mean_reward_per_step": 2263.2337633115444,
+  "num_phases_completed": 1,
+  "phase_rewards": [
+    131267.55827206958
+  ],
+  "distance_stats": {
+    "final": 1.7701489925384521,
+    "mean": 1.7613928515428492,
+    "min_achieved": 1.546033976499329,
+    "max": 1.9802252054214478,
+    "std": 0.130621727185305,
+    "improvement": 0.03352650425440973
+  },
+  "targets_reached_stats": {
+    "total": 0.0,
+    "max_simultaneous": 0.0,
+    "mean": 0.0
+  },
+  "collision_stats": {
+    "total": 0.0,
+    "final": 0
+  },
+  "formation_stats": {
+    "mean_error": 0.4544734651678293,
+    "final_error": 0.576015055179596,
+    "min_error": 0.2947221650844809
+  }
+}

@@ -323,8 +323,8 @@ def create_target_sequence(num_drones=4, scale=1.2):
         # Design sequences that benefit from SAC's exploration capabilities
         targets = np.array([
             # Phase 0: Simple line formation (good for initial learning)
-            [[-1.0*scale, 0.0, 1.2], [-0.3*scale, 0.0, 1.2], 
-             [ 0.3*scale, 0.0, 1.2], [ 1.0*scale, 0.0, 1.2]],
+            [[-scale, 0.0, 1.2], [*scale, 0.0, 2.0], 
+             [scale, -scale, 1.2], [scale, 0.0, 1.2]],
             
             # Phase 1: Square formation (tests coordination)
             [[-scale, -scale, 1.5], [ scale, -scale, 1.5], 

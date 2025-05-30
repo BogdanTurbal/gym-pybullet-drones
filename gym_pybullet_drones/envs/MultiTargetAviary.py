@@ -255,11 +255,27 @@ class MultiTargetAviary(BaseRLAviary):
 
     def step(self, action):
         """Execute one simulation step"""
+        # print('-----')
+        # print(action)
+        # action = np.array([
+        #     [0, 0, 1],
+        #     [0, 0, 2],
+        #     [0, 0, 3],
+        #     [1, 1, 3],
+        # ])
         # Take physics step using parent class
+        
+        # current_targets = self.get_current_targets()
+        # action = current_targets#obs[:, -6:-3]
+        # print(action)
+        
         obs, _, terminated, truncated, info = super().step(action)
+        # print(obs)
+        
+        #print(obs[:, :3])
         
         # Get current drone positions
-        positions = obs[:, 0:3]  # Shape: (NUM_DRONES, 3)
+        positions = obs[:, 0:3]  # Shape: (NUM_DRONES, 4)
         current_targets = self.get_current_targets()
         
         # Compute reward using paper-based approach
@@ -395,12 +411,12 @@ class MultiTargetAviary(BaseRLAviary):
         total_reward -= crash_penalty
         
         # === BONUS: Target reaching reward (not in paper but useful for multi-target tasks) ===
-        target_bonus = 0.0
-        newly_reached = (current_distances < self.tolerance) & (~self.targets_reached)
-        if np.any(newly_reached):
-            target_bonus = np.sum(newly_reached) * 50.0  # Moderate bonus for target completion
-            total_reward += target_bonus
-            self.targets_reached |= newly_reached
+        # target_bonus = 0.0
+        # newly_reached = (current_distances < self.tolerance) & (~self.targets_reached)
+        # if np.any(newly_reached):
+        #     target_bonus = np.sum(newly_reached) * 50.0  # Moderate bonus for target completion
+        #     total_reward += target_bonus
+        #     self.targets_reached |= newly_reached
         
         # Update tracking variables for next step
         self.previous_distances = current_distances.copy()
@@ -418,7 +434,7 @@ class MultiTargetAviary(BaseRLAviary):
         positions = np.array([self._getDroneStateVector(i)[0:3] for i in range(self.NUM_DRONES)])
         current_targets = self.get_current_targets()
         # Use dummy action for reward computation (will be overridden in step())
-        dummy_action = np.zeros((self.NUM_DRONES, 3))  # RPM actions
+        dummy_action = np.zeros((self.NUM_DRONES, 4))  # RPM actions
         return self._compute_paper_based_reward(positions, current_targets, dummy_action)
 
     def _computeTerminated(self):
