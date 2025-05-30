@@ -1,0 +1,50 @@
+{
+  "os": "macOS-15.5-arm64-arm-64bit",
+  "python": "CPython 3.10.5",
+  "startedAt": "2025-05-30T12:05:13.897886Z",
+  "args": [
+    "--wandb_project",
+    "drone-swarm-paper-reward",
+    "--num_vec_envs",
+    "1"
+  ],
+  "program": "/Users/bohdan.turbal/Desktop/dimploma_thesis/gym-pybullet-drones/gym_pybullet_drones/examples/train_multi_td3.py",
+  "codePath": "gym_pybullet_drones/examples/train_multi_td3.py",
+  "git": {
+    "remote": "https://github.com/BogdanTurbal/gym-pybullet-drones.git",
+    "commit": "6538ad54599c088e3a1ad604044f6482f75b3180"
+  },
+  "email": "bogdan.turbal.y@gmail.com",
+  "root": "/Users/bohdan.turbal/Desktop/dimploma_thesis/gym-pybullet-drones/gym_pybullet_drones/examples",
+  "host": "BTurbalPro14.local",
+  "executable": "/Users/bohdan.turbal/Desktop/dimploma_thesis/.conda/bin/python",
+  "codePathLocal": "train_multi_td3.py",
+  "cpu_count": 12,
+  "cpu_count_logical": 12,
+  "disk": {
+    "/": {
+      "total": "994662584320",
+      "used": "829566599168"
+    },
+    "/System/Volumes/Data": {
+      "total": "994662584320",
+      "used": "829566599168"
+    }
+  },
+  "memory": {
+    "total": "34359738368"
+  },
+  "cpu": {
+    "count": 12,
+    "countLogical": 12
+  },
+  "apple": {
+    "name": "Apple M2 Max",
+    "ecpuCores": 4,
+    "pcpuCores": 8,
+    "gpuCores": 30,
+    "memoryGb": 32,
+    "swapTotalBytes": "2147483648",
+    "ramTotalBytes": "34359738368"
+  }
+}

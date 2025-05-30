@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, TD3
 import gymnasium as gym
 
 
@@ -323,12 +323,18 @@ def create_multiagent_ppo_model(env, extractor_type="matrix", features_dim=256, 
     # ppo_kwargs['normalize_advantage'] = True
     
     # Create PPO model
-    model = PPO(
+    model = TD3(
         "MlpPolicy", 
         env,
-        policy_kwargs=policy_kwargs,
-        **ppo_kwargs
+        # policy_kwargs=policy_kwargs,
+        # **ppo_kwargs
     )
+    # model = PPO(
+    #     "MlpPolicy", 
+    #     env,
+    #     policy_kwargs=policy_kwargs,
+    #     **ppo_kwargs
+    # )
     
     print(f"[create_multiagent_ppo_model] Created PPO with {extractor_type} extractor")
     print(f"[create_multiagent_ppo_model] Enhanced architecture for RPM actions")

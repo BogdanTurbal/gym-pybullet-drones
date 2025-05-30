@@ -210,21 +210,28 @@ def create_target_sequence(num_drones=4, scale=1.2):
         # ])
         targets = np.array([
             # Phase 0: Simple line formation (good for progress reward)
-            [[-1.0*scale, 0.0, 1.2], [-0.3*scale, 0.0, 1.2], 
-             [ 0.3*scale, 0.0, 1.2], [ 1.0*scale, 0.0, 1.2]],
-        
-            # Phase 1: Square formation (tests alignment and coordination)
-            [[-scale, -scale, 1.5], [ scale, -scale, 1.5], 
-             [ scale,  scale, 1.5], [-scale,  scale, 1.5]],
-            
-            # Phase 2: Diamond formation (tests precise control)
-            [[ 0.0, -1.2*scale, 1.8], [ 1.2*scale, 0.0, 1.8], 
-             [ 0.0,  1.2*scale, 1.8], [-1.2*scale, 0.0, 1.8]],
-            
-            # Phase 3: Compact formation (final precision test)
-            [[-0.4*scale, -0.4*scale, 1.3], [ 0.4*scale, -0.4*scale, 1.3], 
-             [ 0.4*scale,  0.4*scale, 1.3], [-0.4*scale,  0.4*scale, 1.3]]
+            [[scale, 0.0, 2.0]],
+            [[scale, 0.0, 2.0]],
+            [[scale, 0.0, 2.0]],
+            [[scale, 0.0, 2.0]],
         ])
+        # targets = np.array([
+        #     # Phase 0: Simple line formation (good for progress reward)
+        #     [[-1.0*scale, 0.0, 1.2], [-0.3*scale, 0.0, 1.2], 
+        #      [ 0.3*scale, 0.0, 1.2], [ 1.0*scale, 0.0, 1.2]],
+        
+        #     # Phase 1: Square formation (tests alignment and coordination)
+        #     [[-scale, -scale, 1.5], [ scale, -scale, 1.5], 
+        #      [ scale,  scale, 1.5], [-scale,  scale, 1.5]],
+            
+        #     # Phase 2: Diamond formation (tests precise control)
+        #     [[ 0.0, -1.2*scale, 1.8], [ 1.2*scale, 0.0, 1.8], 
+        #      [ 0.0,  1.2*scale, 1.8], [-1.2*scale, 0.0, 1.8]],
+            
+        #     # Phase 3: Compact formation (final precision test)
+        #     [[-0.4*scale, -0.4*scale, 1.3], [ 0.4*scale, -0.4*scale, 1.3], 
+        #      [ 0.4*scale,  0.4*scale, 1.3], [-0.4*scale,  0.4*scale, 1.3]]
+        # ])
         # targets = np.array([
         #     # Simple target: all drones go to same point to start
         #     [[ scale,  scale, 1.0], [ scale,  scale, 1.0],

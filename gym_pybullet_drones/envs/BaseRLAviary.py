@@ -63,7 +63,7 @@ class BaseRLAviary(BaseAviary):
 
         """
         #### Create a buffer for the last .5 sec of actions ########
-        self.ACTION_BUFFER_SIZE = int(30//2)#int(ctrl_freq//2)
+        self.ACTION_BUFFER_SIZE = int(10/2)#int(ctrl_freq//2)
         self.action_buffer = deque(maxlen=self.ACTION_BUFFER_SIZE)
         ####
         vision_attributes = True if obs == ObservationType.RGB else False
@@ -147,8 +147,8 @@ class BaseRLAviary(BaseAviary):
         else:
             print("[ERROR] in BaseRLAviary._actionSpace()")
             exit()
-        act_lower_bound = np.array([-10*np.ones(size) for i in range(self.NUM_DRONES)])
-        act_upper_bound = np.array([+10*np.ones(size) for i in range(self.NUM_DRONES)])
+        act_lower_bound = np.array([-1*np.ones(size) for i in range(self.NUM_DRONES)])
+        act_upper_bound = np.array([+1*np.ones(size) for i in range(self.NUM_DRONES)])
         #
         for i in range(self.ACTION_BUFFER_SIZE):
             self.action_buffer.append(np.zeros((self.NUM_DRONES,size)))
@@ -184,11 +184,18 @@ class BaseRLAviary(BaseAviary):
             commanded to the 4 motors of each drone.
 
         """
+        # print('-----')
+        # print(action)
         self.action_buffer.append(action)
         rpm = np.zeros((self.NUM_DRONES,4))
         for k in range(action.shape[0]):
             target = action[k, :]
             if self.ACT_TYPE == ActionType.RPM:
+                # if self.NUM_DRONES == 1:
+                #     if action.ndim == 1:
+                #         action = action.reshape(1, -1)
+                # print(self.HOVER_RPM)
+                # print(target)
                 rpm[k,:] = np.array(self.HOVER_RPM * (1+0.05*target))
             elif self.ACT_TYPE == ActionType.PID:
                 state = self._getDroneStateVector(k)

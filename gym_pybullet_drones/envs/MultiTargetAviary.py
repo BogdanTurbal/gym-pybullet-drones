@@ -316,6 +316,8 @@ class MultiTargetAviary(BaseRLAviary):
             'formation_error': np.std(distances_to_targets),
         })
         
+        reward += 1
+        
         return obs, reward, done, truncated, info
 
     def _compute_paper_based_reward(self, positions, targets, actions):
@@ -367,7 +369,7 @@ class MultiTargetAviary(BaseRLAviary):
                 
                 # Convert to positive reward (higher alignment = higher reward)
                 # Use paper's exponential form: exp[λ3 * alignment^4]
-                alignment_reward = self.lambda_2 * np.exp(self.lambda_3 * (alignment + 1)**4)
+                alignment_reward = self.lambda_2 * alignment#np.exp(self.lambda_3 * (alignment + 1)**4)
                 perception_reward += alignment_reward
         
         total_reward += perception_reward
@@ -397,7 +399,7 @@ class MultiTargetAviary(BaseRLAviary):
                 crash_penalty += self.crash_penalty
             
             # Check if drone is too high or too far out
-            if positions[i][2] > 4.0 or np.linalg.norm(positions[i][:2]) > 10.0:
+            if positions[i][2] > 3.0 or np.linalg.norm(positions[i][:2]) > 4.0:
                 crash_penalty += self.bounds_penalty
         
         # Check for inter-drone collisions
@@ -465,7 +467,8 @@ class MultiTargetAviary(BaseRLAviary):
             position = state[0:3]
             
             # Check position bounds
-            if (position[2] > 4.0 or position[2] < 0.1):
+            #print(np.linalg.norm(position[:2]))
+            if (position[2] > 3.0 or position[2] < 0.1 or np.linalg.norm(position[:2]) > 4.0):
                 return True, True
                 
         return False, False

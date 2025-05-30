@@ -1,0 +1,1 @@
+{"setup/phases":4,"setup/steps_per_phase":90,"setup/extractor_type":"matrix","_runtime":1.5578189999999998,"setup/total_parameters":13641,"setup/algorithm":"ppo","setup/num_drones":1,"setup/features_dim":128,"_step":0,"_wandb":{"runtime":1},"setup/episode_length":360,"_timestamp":1.74861382622808e+09}

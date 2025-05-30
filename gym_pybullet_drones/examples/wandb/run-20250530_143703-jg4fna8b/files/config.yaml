@@ -1,0 +1,75 @@
+_wandb:
+    value:
+        cli_version: 0.19.11
+        code_path: code/gym_pybullet_drones/examples/train_multi_td3.py
+        m: []
+        python_version: 3.10.5
+        t:
+            "1":
+                - 1
+                - 55
+            "2":
+                - 1
+                - 55
+            "3":
+                - 13
+                - 15
+                - 16
+                - 23
+                - 35
+                - 55
+            "4": 3.10.5
+            "5": 0.19.11
+            "8":
+                - 2
+                - 5
+            "12": 0.19.11
+            "13": darwin-arm64
+act_type:
+    value: RPM
+algorithm:
+    value: td3
+batch_size:
+    value: 256
+buffer_size:
+    value: 1000000
+eval_freq:
+    value: 10000
+extractor_type:
+    value: matrix
+features_dim:
+    value: 32
+gamma:
+    value: 0.99
+gradient_steps:
+    value: 1
+learning_rate:
+    value: 0.001
+learning_starts:
+    value: 10000
+n_eval_episodes:
+    value: 5
+noise_std:
+    value: 0.1
+noise_type:
+    value: normal
+normalize_observations:
+    value: true
+num_drones:
+    value: 1
+num_vec_envs:
+    value: 4
+obs_type:
+    value: KIN
+policy_delay:
+    value: 2
+target_noise_clip:
+    value: 0.5
+target_policy_noise:
+    value: 0.2
+tau:
+    value: 0.005
+total_timesteps:
+    value: 1000000
+train_freq:
+    value: 1
