@@ -1,1 +1,0 @@
-{"_step":0,"_timestamp":1.7483315314489431e+09,"setup/control_frequency":30,"setup/obs_shape":[4,35],"setup/steps_per_phase":90,"_runtime":1.5544790000000002,"setup/total_parameters":52105,"setup/extractor_parameters":39232,"_wandb":{"runtime":2},"setup/extractor_type":"matrix","setup/num_drones":4,"setup/episode_length":360,"setup/features_dim":32,"setup/phases":4}

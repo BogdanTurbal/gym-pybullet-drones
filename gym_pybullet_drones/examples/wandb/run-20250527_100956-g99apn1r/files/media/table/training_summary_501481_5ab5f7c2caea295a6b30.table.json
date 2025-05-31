@@ -1,1 +1,0 @@
-{"columns": ["Metric", "Value"], "data": [["Final Mean Reward", "119.57"], ["Final Std Reward", "0.00"], ["Training Time (min)", "14.86"], ["Total Timesteps", "500,000"], ["Number of Drones", "4"], ["Architecture Type", "attention"], ["Features Dimension", "32"], ["Total Parameters", "64,161"]]}
