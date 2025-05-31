@@ -37,8 +37,8 @@ DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'demo_results'
 DEFAULT_OBS           = ObservationType('kin')
 DEFAULT_ACT           = ActionType('rpm')
-DEFAULT_DRONES        = 1
-DEFAULT_DURATION_SEC  = 3.0
+DEFAULT_DRONES        = 4
+DEFAULT_DURATION_SEC  = 6.0
 
 
 class AdaptiveDifficultyMetricsCollector:
@@ -477,7 +477,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
     adaptive_params = {
         'episode_length_sec': DEFAULT_DURATION_SEC,
         'target_radius_start': 0.1,
-        'target_radius_max': 1.0,
+        'target_radius_max': 3.0,
         'target_radius_increment': 0.1,
         'target_tolerance': 0.05,
         'success_threshold': 0.9,
@@ -569,6 +569,10 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
             
             # Use the appropriate environment
             env_for_demo = demo_vec_env if demo_vec_env else demo_env
+            # print(env_for_demo)
+            # print(env_for_demo.start_positions)
+            # print(np.array([[0, 0, 1]]))
+            #env_for_demo.current_targets = env_for_demo.start_positions + np.array([[0, 0, 1]])
             
             # Initialize metrics collector
             metrics_collector = AdaptiveDifficultyMetricsCollector(DEFAULT_DRONES)
@@ -587,6 +591,12 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
             
             # Reset environment
             obs = env_for_demo.reset(seed=42 + episode)
+            # print('-------')
+            # print(env_for_demo)
+            # print(env_for_demo.start_positions)
+            # print(np.array([[0, 0, 1]]))
+            #env_for_demo.current_targets = env_for_demo.start_positions + np.array([[-2.0, -2.0, -0.25]])
+            
             if isinstance(obs, tuple):
                 obs = obs[0]  # Handle newer gym versions
                 info = obs[1] if len(obs) > 1 else {}

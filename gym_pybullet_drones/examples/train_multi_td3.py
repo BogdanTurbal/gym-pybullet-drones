@@ -225,7 +225,7 @@ def get_algorithm_config(algorithm: str) -> Dict[str, Any]:
     """Get algorithm-specific configuration"""
     configs = {
         'td3': {
-            'total_timesteps': int(1e6),
+            'total_timesteps': int(1e8),
             'learning_rate': 1e-4,
             'buffer_size': 100_000,
             'learning_starts': 25000,
@@ -241,7 +241,7 @@ def get_algorithm_config(algorithm: str) -> Dict[str, Any]:
             'n_eval_episodes': 5,
         },
         'sac': {
-            'total_timesteps': int(1e6),
+            'total_timesteps': int(1e8),
             'learning_rate': 3e-4,
             'buffer_size': 1_000_000,
             'learning_starts': 10000,
@@ -256,7 +256,7 @@ def get_algorithm_config(algorithm: str) -> Dict[str, Any]:
             'n_eval_episodes': 5,
         },
         'ppo': {
-            'total_timesteps': int(2e6),
+            'total_timesteps': int(1e8),
             'learning_rate': 3e-4,
             'n_steps': 2048,
             'batch_size': 128,
@@ -326,9 +326,9 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
     adaptive_params = {
         'episode_length_sec': DEFAULT_DURATION_SEC,
         'target_radius_start': 0.1,
-        'target_radius_max': 1.0,
+        'target_radius_max': 3.0,
         'target_radius_increment': 0.1,
-        'target_tolerance': 0.01,
+        'target_tolerance': 0.05,
         'success_threshold': 0.9,
         'evaluation_window': 100,
         'crash_penalty': 200.0,

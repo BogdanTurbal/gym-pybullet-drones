@@ -1,6 +1,6 @@
 import wandb
 run = wandb.init()
-artifact = run.use_artifact('bogdan-turbal-y/drone-swarm-paper-reward/PPO_model_306.78:v0', type='model')
+artifact = run.use_artifact('bogdan-turbal-y/drone-adaptive-difficulty/PPO_model_r-327.1_rad0.10:v0', type='model')
 artifact_dir = artifact.download()
 print(artifact_dir)
 

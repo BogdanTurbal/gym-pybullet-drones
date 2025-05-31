@@ -501,6 +501,9 @@ class BaseAviary(gym.Env):
         #### Disable collisions between drones' and the ground plane
         #### E.g., to start a drone at [0,0,0] #####################
         # for i in range(self.NUM_DRONES):
+        #     for j in range(i + 1, self.NUM_DRONES):
+        #         p.setCollisionFilterPair(bodyUniqueIdA=self.DRONE_IDS[i], bodyUniqueIdB=self.DRONE_IDS[j], linkIndexA=-1, linkIndexB=-1, enableCollision=0, physicsClientId=self.CLIENT)
+        # # for i in range(self.NUM_DRONES):
             # p.setCollisionFilterPair(bodyUniqueIdA=self.PLANE_ID, bodyUniqueIdB=self.DRONE_IDS[i], linkIndexA=-1, linkIndexB=-1, enableCollision=0, physicsClientId=self.CLIENT)
         if self.OBSTACLES:
             self._addObstacles()

@@ -25,26 +25,28 @@ class MultiAgentMatrixExtractor(BaseFeaturesExtractor):
         super().__init__(observation_space, features_dim)
         
         # Enhanced agent encoder
-        hidden_dim = 128
+        hidden_dim = 64
         
         self.agent_encoder = nn.Sequential(
             nn.Linear(self.agent_obs_dim, hidden_dim),
-            nn.ReLU(),
-            nn.LayerNorm(hidden_dim),
+            nn.LeakyReLU(0.2),
+            #nn.LayerNorm(hidden_dim),
             nn.Linear(hidden_dim, 64),
-            nn.ReLU(),
-            nn.LayerNorm(64),
+            nn.LeakyReLU(0.2),
+            #nn.LayerNorm(64),
         )
         
         # Final aggregation network
         aggregation_input_dim = 64 * self.num_agents
         self.aggregator = nn.Sequential(
-            nn.Linear(aggregation_input_dim, 256),
-            nn.ReLU(),
-            nn.LayerNorm(256),
-            nn.Linear(256, features_dim),
-            nn.ReLU(),
-            nn.LayerNorm(features_dim),
+            nn.Linear(aggregation_input_dim, 64),
+            nn.LeakyReLU(0.2),
+            nn.Linear(64, 64),
+            nn.LeakyReLU(0.2),
+            #nn.LayerNorm(256),
+            nn.Linear(64, features_dim),
+            nn.LeakyReLU(0.2),
+            #nn.LayerNorm(features_dim),
         )
         
         self._features_dim = features_dim
@@ -334,11 +336,11 @@ def create_multiagent_model(
         
     elif algorithm.lower() == "ppo":
         # PPO-specific policy kwargs
-        # policy_kwargs = {
-        #     "features_extractor_class": extractor_class,
-        #     "features_extractor_kwargs": {"features_dim": features_dim},
-        #     "net_arch": dict(pi=[128, 128], vf=[128, 128]),
-        # }
+        policy_kwargs = {
+            "features_extractor_class": extractor_class,
+            "features_extractor_kwargs": {"features_dim": features_dim},
+            "net_arch": dict(pi=[64, 64], vf=[64, 64]),
+        }
         
         # Default PPO hyperparameters
         default_kwargs = {
@@ -357,7 +359,7 @@ def create_multiagent_model(
         model = PPO(
             "MlpPolicy",
             env,
-            #policy_kwargs=policy_kwargs,
+            policy_kwargs=policy_kwargs,
             **default_kwargs
         )
         

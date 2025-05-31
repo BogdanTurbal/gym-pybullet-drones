@@ -38,7 +38,7 @@ class MultiTargetAviary(BaseRLAviary):
         target_tolerance: float = 0.01,
         success_threshold: float = 0.9,
         evaluation_window: int = 100,
-        collision_distance: float = 0.05,
+        collision_distance: float = 0.1,
         # Soft reward parameters
         lambda_distance: float = 10.0,    # Distance improvement reward
         lambda_angle: float = 1.0,        # Target orientation reward
@@ -50,6 +50,7 @@ class MultiTargetAviary(BaseRLAviary):
         lambda_5: float = 0.0,    
         crash_penalty: float = 200.0,
         bounds_penalty: float = 200.0,
+        individual_target_reward: float = 200.0,  # Reward for each drone reaching target
     ):
         
         self.episode_length_sec = episode_length_sec
@@ -62,6 +63,7 @@ class MultiTargetAviary(BaseRLAviary):
         self.collision_distance = collision_distance
         self.crash_penalty = crash_penalty
         self.bounds_penalty = bounds_penalty
+        self.individual_target_reward = individual_target_reward
         
         # Soft reward parameters
         self.lambda_distance = lambda_distance
@@ -88,6 +90,9 @@ class MultiTargetAviary(BaseRLAviary):
         # Soft reward tracking
         self.previous_distances = None
         self.first_step = True
+        
+        # Track which drones have already reached their targets this episode
+        self.targets_reached_flags = None
         
         # Set episode length
         self.EPISODE_LEN_SEC = episode_length_sec
@@ -119,6 +124,7 @@ class MultiTargetAviary(BaseRLAviary):
         print(f"[MultiTargetAviary] Evaluation window: {evaluation_window} episodes")
         print(f"[MultiTargetAviary] Distance reward λ: {lambda_distance:.1f}")
         print(f"[MultiTargetAviary] Angle reward λ: {lambda_angle:.1f}")
+        print(f"[MultiTargetAviary] Individual target reward: {individual_target_reward:.1f}")
 
     def _get_initial_positions(self):
         """Get initial spawn positions for drones"""
@@ -126,11 +132,11 @@ class MultiTargetAviary(BaseRLAviary):
         for i in range(self.NUM_DRONES):
             if i == 0:
                 # First drone at (1, 1, 1)
-                positions.append([1.0, 1.0, 1.0])
+                positions.append([0.0, 0.0, 1.0])
             else:
                 # Other drones offset by i * 0.25
-                offset = i * 0.25
-                positions.append([1.0 + offset, 1.0 + offset, 1.0])
+                offset = i * 0.5
+                positions.append([offset, offset, 1.0])
         return np.array(positions, dtype=np.float32)
 
     def _generate_random_targets(self):
@@ -142,9 +148,11 @@ class MultiTargetAviary(BaseRLAviary):
             while True:
                 # Generate random point in cube [-1, 1]^3
                 x, y, z = np.random.uniform(-1, 1, 3)
+                ln = x*x + y*y + z*z 
                 
+                min_l = 0.05 / self.current_target_radius
                 # Check if point is inside unit sphere
-                if x*x + y*y + z*z <= 1.0:
+                if min_l < ln <= 1.0 and (self.start_positions[i][2] + z * self.current_target_radius) >= 0.1:
                     # Scale by current radius and offset by start position
                     target = self.start_positions[i] + self.current_target_radius * np.array([x, y, z])
                     targets.append(target)
@@ -247,6 +255,9 @@ class MultiTargetAviary(BaseRLAviary):
         # Generate new random targets
         self.current_targets = self._generate_random_targets()
         
+        # Reset target reached flags for each drone
+        self.targets_reached_flags = np.zeros(self.NUM_DRONES, dtype=bool)
+        
         obs, info = super().reset(seed=seed, options=options)
         
         # Initialize previous distances for soft rewards
@@ -323,18 +334,26 @@ class MultiTargetAviary(BaseRLAviary):
         # print(truncated)
         # print(episode_done)
         
-        # === BINARY REWARDS ===
+        # === INDIVIDUAL TARGET REWARDS ===
         
-        # Check if any drone reached its target
-        targets_reached = distances_to_targets < self.target_tolerance
+        # Check which drones reached their targets this step
+        targets_reached_this_step = distances_to_targets < self.target_tolerance
         
-        if np.any(targets_reached):
-            # Target reached - big positive reward and end episode
-            reward += 200.0
+        # Give rewards for drones that reached targets for the first time
+        for i in range(self.NUM_DRONES):
+            if targets_reached_this_step[i] and not self.targets_reached_flags[i]:
+                # First time this drone reached its target this episode
+                reward += self.individual_target_reward
+                self.targets_reached_flags[i] = True
+                if self.gui:
+                    print(f"[TARGET REACHED] Drone {i} reached target! Distance: {distances_to_targets[i]:.3f}")
+        
+        # Check if ALL drones have reached their targets
+        if np.all(self.targets_reached_flags):
             episode_done = True
             episode_success = True
             if self.gui:
-                print(f"[SUCCESS] Target reached! Distance: {np.min(distances_to_targets):.3f}")
+                print(f"[ALL TARGETS REACHED] All drones completed their targets!")
         
         # Check for crashes and out of bounds
         for i in range(self.NUM_DRONES):
@@ -342,17 +361,17 @@ class MultiTargetAviary(BaseRLAviary):
             
             # Check if drone crashed (too low)
             if pos[2] < 0.1:
-                reward -= self.crash_penalty
+                reward -= self.crash_penalty * 4
                 episode_done = True
                 if self.gui:
                     print(f"[CRASH] Drone {i} crashed (z={pos[2]:.3f})")
             
             # Check if drone went out of bounds
-            if pos[2] > 3.0 or np.linalg.norm(pos[:2]) > 5.0:
-                reward -= self.bounds_penalty
-                episode_done = True
-                if self.gui:
-                    print(f"[OUT_OF_BOUNDS] Drone {i} out of bounds")
+            # if pos[2] > 3.0 or np.linalg.norm(pos[:2]) > 5.0:
+            #     reward -= self.bounds_penalty
+            #     episode_done = True
+            #     if self.gui:
+            #         print(f"[OUT_OF_BOUNDS] Drone {i} out of bounds")
         
         # Check for inter-drone collisions
         for i in range(self.NUM_DRONES):
@@ -372,7 +391,7 @@ class MultiTargetAviary(BaseRLAviary):
         
         # Check if episode time limit reached
         if self.total_steps >= self.max_episode_steps:
-            reward -= self.bounds_penalty  # Penalty for timeout
+            reward -= self.bounds_penalty * 4  # Penalty for timeout
             episode_done = True
             if self.gui:
                 print(f"[TIMEOUT] Episode timed out after {self.total_steps} steps")
@@ -401,10 +420,14 @@ class MultiTargetAviary(BaseRLAviary):
             'distance_to_targets': distances_to_targets.copy(),
             'min_distance_to_target': np.min(distances_to_targets),
             'episode_success': episode_success,
-            'targets_reached': targets_reached.copy(),
+            'targets_reached': targets_reached_this_step.copy(),
+            'targets_reached_flags': self.targets_reached_flags.copy(),  # Track which drones have reached targets
+            'num_targets_reached': np.sum(self.targets_reached_flags),
         })
         
         truncated = truncated[0]
+        
+        reward -= 0.05
         
         return obs, reward, episode_done, truncated, info
 
@@ -464,6 +487,7 @@ if __name__ == "__main__":
         evaluation_window=10,  # Smaller for testing
         lambda_distance=10.0,  # Distance improvement reward
         lambda_angle=1.0,      # Target orientation reward
+        individual_target_reward=400.0,  # Reward for each drone reaching target
     )
     
     print(f"Action space: {env.action_space}")
