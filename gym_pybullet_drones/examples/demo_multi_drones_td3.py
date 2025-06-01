@@ -37,7 +37,7 @@ DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'demo_results'
 DEFAULT_OBS           = ObservationType('kin')
 DEFAULT_ACT           = ActionType('rpm')
-DEFAULT_DRONES        = 4
+DEFAULT_DRONES        = 1
 DEFAULT_DURATION_SEC  = 6.0
 
 
@@ -453,6 +453,8 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
     except Exception as e:
         print(f"[ERROR] Failed to create dummy environment: {e}")
         return
+    
+    freq = 24
 
     print(f"[INFO] Episode length: {DEFAULT_DURATION_SEC:.1f} seconds")
     print(f"[INFO] Control frequency: {freq} Hz")
@@ -484,6 +486,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
         'evaluation_window': 100,
         'crash_penalty': 200.0,
         'bounds_penalty': 200.0,
+        'ctrl_freq': 24
     }
 
     # Create evaluation environment for quick assessment
@@ -595,7 +598,8 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
             # print(env_for_demo)
             # print(env_for_demo.start_positions)
             # print(np.array([[0, 0, 1]]))
-            #env_for_demo.current_targets = env_for_demo.start_positions + np.array([[-2.0, -2.0, -0.25]])
+            #env_for_demo.current_targets = env_for_demo.start_positions + np.array([[-.0, 1.0, -0.5]])
+            env_for_demo.current_targets = env_for_demo.start_positions + np.array([[-2.0, -2.0, -0.25]])
             
             if isinstance(obs, tuple):
                 obs = obs[0]  # Handle newer gym versions

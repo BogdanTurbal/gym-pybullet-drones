@@ -1,59 +1,65 @@
 # MultiTargetAviary.py - ADAPTIVE DIFFICULTY SINGLE DRONE VERSION
 import numpy as np
-import gymnasium as gym
-from gymnasium import spaces
+import gymnasium as gym # Changed from gym to gymnasium
+from gymnasium import spaces # Changed from gym to gymnasium
 from collections import deque
 from gym_pybullet_drones.envs.BaseRLAviary import BaseRLAviary
-from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType
+# Assuming enums are in this path or defined elsewhere accessible
+from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType, ImageType
+
+# If enums.py is not provided or KIN_DEPTH is not there, define locally for now
+# This should ideally be in your global enums.py
+try:
+    from gym_pybullet_drones.utils.enums import ObservationType
+    if not hasattr(ObservationType, 'KIN_DEPTH'): # pragma: no cover
+        from enum import Enum
+        class ExtendedObservationType(Enum): 
+            KIN = "kin"
+            RGB = "rgb"
+            KIN_DEPTH = "kin_depth"
+        ObservationType = ExtendedObservationType
+except ImportError: # pragma: no cover
+    from enum import Enum
+    class ObservationType(Enum):
+        KIN = "kin"
+        RGB = "rgb"
+        KIN_DEPTH = "kin_depth" # New observation type
 
 class MultiTargetAviary(BaseRLAviary):
     """
-    Adaptive difficulty single-drone RL environment.
-    
-    Features:
-    - Adaptive target distance based on success rate
-    - Simple reward: +200 for target, -200 for failure
-    - Episode terminates on target reach or failure
-    - Targets spawned uniformly in sphere around start position
+    Adaptive difficulty single-drone RL environment with KIN+Depth observations.
     """
-
     def __init__(
         self,
         drone_model: DroneModel = DroneModel.CF2X,
-        num_drones: int = 1,
+        num_drones: int = 1, 
         neighbourhood_radius: float = np.inf,
         initial_xyzs=None,
         initial_rpys=None,
         physics: Physics = Physics.PYB,
         pyb_freq: int = 240,
-        ctrl_freq: int = 30,
+        ctrl_freq: int = 30, 
         gui=False,
         record=False,
-        obs: ObservationType = ObservationType.KIN,
+        obs: ObservationType = ObservationType.KIN_DEPTH, 
         act: ActionType = ActionType.RPM,
         episode_length_sec: float = 3.0,
         target_radius_start: float = 0.1,
-        target_radius_max: float = 1.0,
+        target_radius_max: float = 1.0, 
         target_radius_increment: float = 0.1,
-        target_tolerance: float = 0.01,
+        target_tolerance: float = 0.05, 
         success_threshold: float = 0.9,
         evaluation_window: int = 100,
         collision_distance: float = 0.1,
-        # Soft reward parameters
-        lambda_distance: float = 10.0,    # Distance improvement reward
-        lambda_angle: float = 1.0,        # Target orientation reward
-        # Keep compatibility params (not used)
-        lambda_1: float = 0.0,    
-        lambda_2: float = 0.0,     
-        lambda_3: float = 0.0,    
-        lambda_4: float = 0.0,    
-        lambda_5: float = 0.0,    
+        lambda_distance: float = 10.0,
+        lambda_angle: float = 1.0,
         crash_penalty: float = 200.0,
         bounds_penalty: float = 200.0,
-        individual_target_reward: float = 200.0,  # Reward for each drone reaching target
+        individual_target_reward: float = 400.0,
     ):
+        self.gui = gui
         
-        self.episode_length_sec = episode_length_sec
+        self.episode_length_sec = episode_length_sec # Store for calculating max_episode_steps
         self.target_radius_start = target_radius_start
         self.target_radius_max = target_radius_max
         self.target_radius_increment = target_radius_increment
@@ -65,458 +71,395 @@ class MultiTargetAviary(BaseRLAviary):
         self.bounds_penalty = bounds_penalty
         self.individual_target_reward = individual_target_reward
         
-        # Soft reward parameters
         self.lambda_distance = lambda_distance
         self.lambda_angle = lambda_angle
         
-        self.gui = gui
-        self.record = record
-        self.OBS_TYPE = obs
-        self.ACT_TYPE = act
-        self.NUM_DRONES = num_drones
+        self.NUM_DRONES = num_drones 
         self.DRONE_MODEL = drone_model
         
-        # Adaptive difficulty system
         self.current_target_radius = target_radius_start
-        self.episode_results = deque(maxlen=evaluation_window)  # Store success/failure
+        self.episode_results = deque(maxlen=evaluation_window)
         self.total_episodes = 0
         
-        # Episode state
         self.total_steps = 0
-        self.max_episode_steps = int(episode_length_sec * ctrl_freq)
-        self.current_targets = None
-        self.start_positions = None
+        self.current_targets = None 
+        self.start_positions = None 
         
-        # Soft reward tracking
         self.previous_distances = None
         self.first_step = True
+        # Initialize targets_reached_flags early, using num_drones passed to __init__
+        self.targets_reached_flags = np.zeros(num_drones, dtype=bool)
         
-        # Track which drones have already reached their targets this episode
-        self.targets_reached_flags = None
-        
-        # Set episode length
-        self.EPISODE_LEN_SEC = episode_length_sec
-        
+        # EPISODE_LEN_SEC is used by BaseAviary indirectly if passed, but we set it for clarity
+        # For max_episode_steps calculation, we need self.CTRL_FREQ which is set in super().__init__
+        # So, self.EPISODE_LEN_SEC must be passed to super if BaseAviary is to use it,
+        # or we calculate max_episode_steps after super init.
+        # BaseAviary does not have EPISODE_LEN_SEC as an __init__ param.
+        # We set self.EPISODE_LEN_SEC as an attribute of MultiTargetAviary.
+
+        if initial_xyzs is None:
+            current_initial_xyzs = self._get_initial_positions()
+        else:
+            current_initial_xyzs = initial_xyzs
+
         super().__init__(
             drone_model=drone_model,
             num_drones=num_drones,
             neighbourhood_radius=neighbourhood_radius,
-            initial_xyzs=self._get_initial_positions(),
+            initial_xyzs=current_initial_xyzs, 
             initial_rpys=initial_rpys,
             physics=physics,
             pyb_freq=pyb_freq,
-            ctrl_freq=ctrl_freq,
+            ctrl_freq=ctrl_freq, # This sets self.CTRL_FREQ in BaseAviary
             gui=gui,
             record=record,
-            obs=obs,
+            obs=obs, 
             act=act
         )
         
-        # Calculate actual observation dimensions after BaseRLAviary initialization
-        sample_obs = super()._computeObs()
-        self.base_obs_dim = sample_obs.shape[1]  # Features per drone from BaseRLAviary
+        # Now that super().__init__() has run, self.CTRL_FREQ is set by BaseAviary.
+        # We can safely calculate self.max_episode_steps.
+        self.max_episode_steps = int(self.episode_length_sec * self.CTRL_FREQ)
+
+        if self.OBS_TYPE == ObservationType.KIN_DEPTH or self.OBS_TYPE == ObservationType.KIN:
+            if self.NUM_DRONES == 1:
+                 self.base_kin_obs_dim = self.observation_space["kin"].shape[0] if self.OBS_TYPE == ObservationType.KIN_DEPTH else self.observation_space.shape[0]
+            else: 
+                 self.base_kin_obs_dim = self.observation_space["kin"].shape[1] if self.OBS_TYPE == ObservationType.KIN_DEPTH else self.observation_space.shape[1]
         
-        print(f"[MultiTargetAviary] Initialized ADAPTIVE DIFFICULTY system with SOFT REWARDS")
-        print(f"[MultiTargetAviary] Start radius: {target_radius_start:.2f}")
-        print(f"[MultiTargetAviary] Max radius: {target_radius_max:.2f}")
-        print(f"[MultiTargetAviary] Episode length: {episode_length_sec:.1f} seconds")
-        print(f"[MultiTargetAviary] Success threshold: {success_threshold:.1f}")
-        print(f"[MultiTargetAviary] Evaluation window: {evaluation_window} episodes")
-        print(f"[MultiTargetAviary] Distance reward λ: {lambda_distance:.1f}")
-        print(f"[MultiTargetAviary] Angle reward λ: {lambda_angle:.1f}")
-        print(f"[MultiTargetAviary] Individual target reward: {individual_target_reward:.1f}")
+        print(f"[MultiTargetAviary] Initialized with {self.OBS_TYPE.value} observations.")
+        print(f"[MultiTargetAviary] Max episode steps: {self.max_episode_steps} (Duration: {self.episode_length_sec}s, Ctrl Freq: {self.CTRL_FREQ}Hz)")
+        print(f"[MultiTargetAviary] Current target radius: {self.current_target_radius:.2f}m")
 
     def _get_initial_positions(self):
-        """Get initial spawn positions for drones"""
         positions = []
-        for i in range(self.NUM_DRONES):
-            if i == 0:
-                # First drone at (1, 1, 1)
-                positions.append([0.0, 0.0, 1.0])
+        for i in range(self.NUM_DRONES): 
+            if self.NUM_DRONES == 1:
+                 positions.append([0.0, 0.0, 1.0]) 
             else:
-                # Other drones offset by i * 0.25
-                offset = i * 0.5
-                positions.append([offset, offset, 1.0])
-        return np.array(positions, dtype=np.float32)
+                 offset = i * 0.5 
+                 positions.append([offset, offset, 1.0])
+        return np.array(positions, dtype=np.float32) if self.NUM_DRONES > 0 else None
 
     def _generate_random_targets(self):
-        """Generate random targets in sphere around start positions"""
         targets = []
+        # Use self.INIT_XYZS from BaseAviary as the definitive start positions after reset/init
+        current_start_positions = self.INIT_XYZS 
+        if current_start_positions is None: # Should not happen after BaseAviary._housekeeping
+            print("[WARNING] self.INIT_XYZS is None in _generate_random_targets. Falling back.")
+            current_start_positions = self._get_initial_positions()
+
+
         for i in range(self.NUM_DRONES):
-            # Generate random point in sphere
-            # Use rejection sampling for uniform distribution in sphere
             while True:
-                # Generate random point in cube [-1, 1]^3
                 x, y, z = np.random.uniform(-1, 1, 3)
-                ln = x*x + y*y + z*z 
+                ln_sq = x*x + y*y + z*z 
+                min_l_sq = (0.05 / self.current_target_radius) ** 2 #if self.current_target_radius > 0.001 else 0 # Avoid division by zero
                 
-                min_l = 0.05 / self.current_target_radius
-                # Check if point is inside unit sphere
-                if min_l < ln <= 1.0 and (self.start_positions[i][2] + z * self.current_target_radius) >= 0.1:
-                    # Scale by current radius and offset by start position
-                    target = self.start_positions[i] + self.current_target_radius * np.array([x, y, z])
+                target_z_coord = current_start_positions[i, 2] + z * self.current_target_radius
+                if min_l_sq < ln_sq <= 1.0 and target_z_coord >= 0.1: # Target must be above ground
+                    target = current_start_positions[i, :] + self.current_target_radius * np.array([x, y, z])
                     targets.append(target)
                     break
-        
         return np.array(targets, dtype=np.float32)
 
     def _update_adaptive_difficulty(self):
-        """Update target radius based on success rate"""
         if len(self.episode_results) >= self.evaluation_window:
             success_rate = np.mean(self.episode_results)
-            
             if success_rate >= self.success_threshold:
                 old_radius = self.current_target_radius
                 self.current_target_radius = min(
                     self.target_radius_max,
                     self.current_target_radius + self.target_radius_increment
                 )
-                
-                if self.current_target_radius > old_radius:
-                    print(f"[AdaptiveDifficulty] Success rate: {success_rate:.3f} >= {self.success_threshold:.3f}")
-                    print(f"[AdaptiveDifficulty] Increased radius: {old_radius:.2f} -> {self.current_target_radius:.2f}")
-                    
-                    # Clear episode results to re-evaluate at new difficulty
+                if self.current_target_radius > old_radius + 1e-5: # Check for actual change
+                    print(f"[AdaptiveDifficulty] Success rate: {success_rate:.3f}, Increased radius: {old_radius:.2f} -> {self.current_target_radius:.2f}")
                     self.episode_results.clear()
 
     def _observationSpace(self):
-        """Override BaseRLAviary observation space to add target information."""
-        if self.OBS_TYPE == ObservationType.RGB:
-            return super()._observationSpace()
-            
+        base_obs_space = super()._observationSpace() 
+        if self.OBS_TYPE == ObservationType.KIN_DEPTH:
+            original_kin_space = base_obs_space.spaces["kin"]
+            target_features_per_drone_kin = 6
+            if self.NUM_DRONES == 1:
+                new_kin_dim = original_kin_space.shape[0] + target_features_per_drone_kin
+                new_kin_low = np.concatenate([original_kin_space.low, np.full(target_features_per_drone_kin, -np.inf)])
+                new_kin_high = np.concatenate([original_kin_space.high, np.full(target_features_per_drone_kin, np.inf)])
+                augmented_kin_space = spaces.Box(low=new_kin_low, high=new_kin_high, dtype=np.float32)
+            else: 
+                new_kin_dim_per_agent = original_kin_space.shape[1] + target_features_per_drone_kin
+                original_low_per_agent = original_kin_space.low[0,:] 
+                original_high_per_agent = original_kin_space.high[0,:]
+                new_low_per_agent = np.concatenate([original_low_per_agent, np.full(target_features_per_drone_kin, -np.inf)])
+                new_high_per_agent = np.concatenate([original_high_per_agent, np.full(target_features_per_drone_kin, np.inf)])
+                augmented_kin_space = spaces.Box(
+                    low=np.tile(new_low_per_agent, (self.NUM_DRONES,1)),
+                    high=np.tile(new_high_per_agent, (self.NUM_DRONES,1)),
+                    dtype=np.float32)
+            return spaces.Dict({"kin": augmented_kin_space, "depth": base_obs_space.spaces["depth"]})
         elif self.OBS_TYPE == ObservationType.KIN:
-            # Get base observation space from parent
-            base_obs_space = super()._observationSpace()
-            base_shape = base_obs_space.shape
-            
-            # Add target information: 6 features per drone
-            target_features_per_drone = 6
-            
-            # New observation shape: base_features + target_features per drone
-            new_shape = (base_shape[0], base_shape[1] + target_features_per_drone)
-            
-            # Create bounds for additional features
-            lo = -np.inf
-            hi = np.inf
-            
-            # Extend bounds for target features
-            base_low = base_obs_space.low
-            base_high = base_obs_space.high
-            
-            target_low = np.full((self.NUM_DRONES, target_features_per_drone), lo, dtype=np.float32)
-            target_high = np.full((self.NUM_DRONES, target_features_per_drone), hi, dtype=np.float32)
-            
-            new_low = np.hstack([base_low, target_low])
-            new_high = np.hstack([base_high, target_high])
-            
-            return spaces.Box(low=new_low, high=new_high, dtype=np.float32)
-        else:
-            raise NotImplementedError(f"Observation type {self.OBS_TYPE} not implemented")
+            original_kin_space = base_obs_space
+            target_features_kin = 6 
+            if self.NUM_DRONES == 1:
+                new_dim = original_kin_space.shape[0] + target_features_kin
+                new_low = np.concatenate([original_kin_space.low, np.full(target_features_kin, -np.inf)])
+                new_high = np.concatenate([original_kin_space.high, np.full(target_features_kin, np.inf)])
+                return spaces.Box(low=new_low, high=new_high, dtype=np.float32)
+            else: 
+                new_dim_per_agent = original_kin_space.shape[1] + target_features_kin
+                original_low_per_agent = original_kin_space.low[0,:]
+                original_high_per_agent = original_kin_space.high[0,:]
+                new_low_per_agent = np.concatenate([original_low_per_agent, np.full(target_features_kin, -np.inf)])
+                new_high_per_agent = np.concatenate([original_high_per_agent, np.full(target_features_kin, np.inf)])
+                return spaces.Box(low=np.tile(new_low_per_agent, (self.NUM_DRONES,1)), high=np.tile(new_high_per_agent, (self.NUM_DRONES,1)), dtype=np.float32)
+        else: 
+            return base_obs_space
 
     def _computeObs(self):
-        """Override BaseRLAviary observation computation to add target information."""
-        if self.OBS_TYPE == ObservationType.RGB:
-            return super()._computeObs()
-            
-        elif self.OBS_TYPE == ObservationType.KIN:
-            # Get base observations from parent
-            base_obs = super()._computeObs()  # Shape: (NUM_DRONES, base_features)
-            
-            # Compute target information
-            target_obs = np.zeros((self.NUM_DRONES, 6), dtype=np.float32)
-            
+        base_obs = super()._computeObs()
+        if self.current_targets is None: 
+             self.current_targets = self._generate_random_targets()
+
+        if self.OBS_TYPE == ObservationType.KIN_DEPTH:
+            current_kin_obs = base_obs["kin"] 
+            target_info_list = []
             for i in range(self.NUM_DRONES):
-                # Get current position from base observation
-                my_position = base_obs[i, 0:3]
+                drone_pos_idx_end = 3
+                my_position = current_kin_obs[i, 0:drone_pos_idx_end] if self.NUM_DRONES > 1 and current_kin_obs.ndim == 2 else current_kin_obs[0:drone_pos_idx_end]
                 my_target = self.current_targets[i]
                 relative_target = my_target - my_position
-                
-                target_obs[i, :] = np.array([
-                    my_target[0], my_target[1], my_target[2],      # Target position (3)
-                    relative_target[0], relative_target[1], relative_target[2],  # Relative target (3)
-                ])
-            
-            # Concatenate base observations with target observations
-            full_obs = np.hstack([base_obs, target_obs])
-            
-            return full_obs
-        else:
-            raise NotImplementedError(f"Observation type {self.OBS_TYPE} not implemented")
+                target_obs_features = np.array([my_target[0], my_target[1], my_target[2], relative_target[0], relative_target[1], relative_target[2]], dtype=np.float32)
+                target_info_list.append(target_obs_features)
+            all_targets_info = np.array(target_info_list)
+            if self.NUM_DRONES == 1:
+                augmented_kin = np.concatenate([current_kin_obs, all_targets_info[0]])
+            else:
+                augmented_kin = np.hstack([current_kin_obs, all_targets_info])
+            return {"kin": augmented_kin.astype(np.float32), "depth": base_obs["depth"]}
+        elif self.OBS_TYPE == ObservationType.KIN:
+            current_kin_obs = base_obs
+            target_info_list = []
+            for i in range(self.NUM_DRONES):
+                drone_pos_idx_end = 3
+                my_position = current_kin_obs[i, 0:drone_pos_idx_end] if self.NUM_DRONES > 1 and current_kin_obs.ndim == 2 else current_kin_obs[0:drone_pos_idx_end]
+                my_target = self.current_targets[i]
+                relative_target = my_target - my_position
+                target_obs_features = np.array([my_target[0], my_target[1], my_target[2], relative_target[0], relative_target[1], relative_target[2]], dtype=np.float32)
+                target_info_list.append(target_obs_features)
+            all_targets_info = np.array(target_info_list)
+            if self.NUM_DRONES == 1:
+                return np.concatenate([current_kin_obs, all_targets_info[0]]).astype(np.float32)
+            else:
+                return np.hstack([current_kin_obs, all_targets_info]).astype(np.float32)
+        else: 
+            return base_obs
 
     def reset(self, seed=None, options=None):
-        """Reset environment to initial state"""
-        #print(self.total_steps)
         self.total_steps = 0
         self.first_step = True
         
-        # Store start positions
-        self.start_positions = self._get_initial_positions()
-        
-        # Generate new random targets
+        # self.INIT_XYZS is set by BaseAviary's _housekeeping, which is called
+        # during its __init__ and also at the start of its reset().
+        # To generate targets for *this* episode before super().reset() might change INIT_XYZS
+        # (if it re-randomizes them based on new seed), we generate targets based on
+        # the current INIT_XYZS or what _get_initial_positions would give.
+        if self.INIT_XYZS is not None:
+             self.start_positions = self.INIT_XYZS.copy() # Use current drone starting positions
+        else: # Fallback if called before BaseAviary init fully sets INIT_XYZS
+            self.start_positions = self._get_initial_positions()
+
         self.current_targets = self._generate_random_targets()
-        
-        # Reset target reached flags for each drone
         self.targets_reached_flags = np.zeros(self.NUM_DRONES, dtype=bool)
         
-        obs, info = super().reset(seed=seed, options=options)
+        super_obs, super_info = super().reset(seed=seed, options=options) 
+        obs = super_obs 
         
-        # Initialize previous distances for soft rewards
-        positions = obs[:, 0:3]
-        self.previous_distances = np.linalg.norm(positions - self.current_targets, axis=1)
+        # After super().reset(), self.pos is updated to the new reset positions
+        current_positions_after_reset = self.pos
+
+        if self.current_targets is None: # Should be set by now
+             self.current_targets = self._generate_random_targets()
+
+        self.previous_distances = np.linalg.norm(current_positions_after_reset - self.current_targets, axis=1)
         
-        # Add target information to info
-        info.update({
-            'current_targets': self.current_targets.copy(),
-            'target_radius': self.current_target_radius,
-            'total_episodes': self.total_episodes,
-            'success_rate_last_100': np.mean(self.episode_results) if len(self.episode_results) > 0 else 0.0,
-        })
+        # Recompute info with fully reset state
+        info = self._computeInfo() 
         
         return obs, info
 
     def step(self, action):
-        """Execute one simulation step"""
-        # Take physics step using parent class
-        obs, _, terminated, truncated, info = super().step(action)
-        # print('---')
-        # print(self.total_steps)
-        # print(truncated)
-        
-        # Get current drone positions
-        positions = obs[:, 0:3]  # Shape: (NUM_DRONES, 3)
-        
-        # Initialize reward
-        reward = 0.0
-        episode_done = False
-        episode_success = False
-        
-        # Calculate distances to targets
-        distances_to_targets = np.linalg.norm(positions - self.current_targets, axis=1)
-        
-        # === SOFT REWARDS ===
-        
-        # 1. Distance reward (progress toward target)
-        if not self.first_step and self.previous_distances is not None:
-            distance_improvements = self.previous_distances - distances_to_targets
-            distance_reward = self.lambda_distance * np.sum(distance_improvements)
-            reward += distance_reward
-        
-        # 2. Angle reward (orientation toward target)
-        angle_reward = 0.0
-        for i in range(self.NUM_DRONES):
-            # Get drone state for orientation
-            state = self._getDroneStateVector(i)
-            drone_pos = state[0:3]
-            drone_yaw = state[9]  # Yaw angle from RPY
-            
-            # Calculate target direction in XY plane
-            target_direction = self.current_targets[i][:2] - drone_pos[:2]  # Only X,Y
-            target_direction_norm = np.linalg.norm(target_direction)
-            
-            if target_direction_norm > 0.01:  # Avoid division by zero
-                # Normalize target direction
-                target_direction = target_direction / target_direction_norm
-                
-                # Calculate drone's forward direction from yaw
-                drone_forward = np.array([np.cos(drone_yaw), np.sin(drone_yaw)])
-                
-                # Calculate alignment (cosine of angle between directions)
-                alignment = np.dot(drone_forward, target_direction)
-                alignment = np.clip(alignment, -1, 1)  # Ensure valid range
-                
-                # Convert to positive reward (alignment ranges from -1 to 1)
-                # Scale to 0-1 range: (alignment + 1) / 2
-                normalized_alignment = (alignment + 1) / 2
-                angle_reward += self.lambda_angle * normalized_alignment
-        
-        reward += angle_reward
-        
-        # print(truncated)
-        # print(episode_done)
-        
-        # === INDIVIDUAL TARGET REWARDS ===
-        
-        # Check which drones reached their targets this step
-        targets_reached_this_step = distances_to_targets < self.target_tolerance
-        
-        # Give rewards for drones that reached targets for the first time
-        for i in range(self.NUM_DRONES):
-            if targets_reached_this_step[i] and not self.targets_reached_flags[i]:
-                # First time this drone reached its target this episode
-                reward += self.individual_target_reward
-                self.targets_reached_flags[i] = True
-                if self.gui:
-                    print(f"[TARGET REACHED] Drone {i} reached target! Distance: {distances_to_targets[i]:.3f}")
-        
-        # Check if ALL drones have reached their targets
-        if np.all(self.targets_reached_flags):
-            episode_done = True
-            episode_success = True
-            if self.gui:
-                print(f"[ALL TARGETS REACHED] All drones completed their targets!")
-        
-        # Check for crashes and out of bounds
-        for i in range(self.NUM_DRONES):
-            pos = positions[i]
-            
-            # Check if drone crashed (too low)
-            if pos[2] < 0.1:
-                reward -= self.crash_penalty * 4
-                episode_done = True
-                if self.gui:
-                    print(f"[CRASH] Drone {i} crashed (z={pos[2]:.3f})")
-            
-            # Check if drone went out of bounds
-            # if pos[2] > 3.0 or np.linalg.norm(pos[:2]) > 5.0:
-            #     reward -= self.bounds_penalty
-            #     episode_done = True
-            #     if self.gui:
-            #         print(f"[OUT_OF_BOUNDS] Drone {i} out of bounds")
-        
-        # Check for inter-drone collisions
-        for i in range(self.NUM_DRONES):
-            for j in range(i + 1, self.NUM_DRONES):
-                distance = np.linalg.norm(positions[i] - positions[j])
-                if distance < self.collision_distance:
-                    reward -= self.crash_penalty
-                    episode_done = True
-                    if self.gui:
-                        print(f"[COLLISION] Drones {i} and {j} collided")
-        
-        # Update episode state
-        self.total_steps += 1
-        
-        # print(truncated)
-        # print(episode_done)
-        
-        # Check if episode time limit reached
-        if self.total_steps >= self.max_episode_steps:
-            reward -= self.bounds_penalty * 4  # Penalty for timeout
-            episode_done = True
-            if self.gui:
-                print(f"[TIMEOUT] Episode timed out after {self.total_steps} steps")
-        
-        # Handle episode completion
+        obs, reward_val, terminated_val, truncated_tuple, info = super().step(action)
+        # In Gymnasium, truncated is a bool, not a tuple. Info is the dict.
+        # The tuple return for truncated might be from an older gym version or custom wrapper.
+        # Standard Gymnasium step returns: obs, reward, terminated, truncated, info
+        # where truncated is bool.
+        truncated_val = truncated_tuple[0] if isinstance(truncated_tuple, tuple) else truncated_tuple
+
+        self.total_steps += 1 
+        episode_done = terminated_val or truncated_val
+
         if episode_done:
             self.total_episodes += 1
-            self.episode_results.append(1.0 if episode_success else 0.0)
-            
-            # Update adaptive difficulty
+            current_episode_success = info.get('episode_success', False) 
+            self.episode_results.append(1.0 if current_episode_success else 0.0)
             self._update_adaptive_difficulty()
-        
-        # Update tracking for next step
-        self.previous_distances = distances_to_targets.copy()
+            
         self.first_step = False
-        
-        # print(truncated)
-        # print(episode_done)
-        
-        # Update info with metrics
-        info.update({
-            'current_targets': self.current_targets.copy(),
-            'target_radius': self.current_target_radius,
-            'total_episodes': self.total_episodes,
-            'success_rate_last_100': np.mean(self.episode_results) if len(self.episode_results) > 0 else 0.0,
-            'distance_to_targets': distances_to_targets.copy(),
-            'min_distance_to_target': np.min(distances_to_targets),
-            'episode_success': episode_success,
-            'targets_reached': targets_reached_this_step.copy(),
-            'targets_reached_flags': self.targets_reached_flags.copy(),  # Track which drones have reached targets
-            'num_targets_reached': np.sum(self.targets_reached_flags),
-        })
-        
-        truncated = truncated[0]
-        
-        reward -= 0.05
-        
-        return obs, reward, episode_done, truncated, info
-
-    # =====================================================================
-    # REQUIRED ABSTRACT METHODS FROM BaseRLAviary/BaseAviary
-    # =====================================================================
+        return obs, reward_val, terminated_val, truncated_val, info
 
     def _computeReward(self):
-        """Computes the current reward value."""
-        # This is overridden in step() method
-        return 0.0
+        reward = 0.0
+        current_positions = self.pos 
+        distances_to_targets = np.linalg.norm(current_positions - self.current_targets, axis=1)
+        
+        if not self.first_step and self.previous_distances is not None:
+            distance_improvements = self.previous_distances - distances_to_targets
+            for i in range(self.NUM_DRONES):
+                if not self.targets_reached_flags[i]: 
+                    reward += self.lambda_distance * distance_improvements[i]
+        
+        angle_reward_sum = 0.0
+        for i in range(self.NUM_DRONES):
+            if not self.targets_reached_flags[i]: 
+                drone_pos = self.pos[i, :]
+                drone_yaw = self.rpy[i, 2] 
+                target_direction_xy = self.current_targets[i, :2] - drone_pos[:2]
+                target_direction_norm = np.linalg.norm(target_direction_xy)
+                if target_direction_norm > 0.01:
+                    target_direction_xy /= target_direction_norm
+                    drone_forward_xy = np.array([np.cos(drone_yaw), np.sin(drone_yaw)])
+                    alignment = np.dot(drone_forward_xy, target_direction_xy)
+                    normalized_alignment = (alignment + 1) / 2 
+                    angle_reward_sum += self.lambda_angle * normalized_alignment
+        reward += angle_reward_sum
+
+        targets_newly_reached_this_step = (distances_to_targets < self.target_tolerance) & ~self.targets_reached_flags
+        for i in range(self.NUM_DRONES):
+            if targets_newly_reached_this_step[i]:
+                reward += self.individual_target_reward
+                self.targets_reached_flags[i] = True 
+                if self.gui: print(f"[TARGET REACHED] Drone {i} distance: {distances_to_targets[i]:.3f}")
+        
+        current_pos_for_penalty_check = self.pos 
+        for i in range(self.NUM_DRONES):
+            if current_pos_for_penalty_check[i, 2] < 0.05: 
+                reward -= self.crash_penalty 
+                break 
+        
+        if self.NUM_DRONES > 1:
+            collided_this_step = False
+            for i in range(self.NUM_DRONES):
+                for j in range(i + 1, self.NUM_DRONES):
+                    if np.linalg.norm(current_pos_for_penalty_check[i] - current_pos_for_penalty_check[j]) < self.collision_distance:
+                        reward -= self.crash_penalty 
+                        collided_this_step = True
+                        break
+                if collided_this_step: break
+        # python train_multi_td3.py --algorithm ppo --num_drones 1 --features_dim 32  --num_vec_envs 4
+        # Timeout penalty calculation using self.max_episode_steps
+        # self.step_counter is PyBullet steps, self.PYB_STEPS_PER_CTRL is step ratio
+        num_control_steps_so_far = self.step_counter // self.PYB_STEPS_PER_CTRL if self.PYB_STEPS_PER_CTRL > 0 else self.step_counter
+        # Check if this *current* step will be the one that meets or exceeds max_episode_steps
+        if num_control_steps_so_far >= self.max_episode_steps -1 : # -1 because truncation happens *after* this step if it's the last one
+             if not np.all(self.targets_reached_flags): 
+                reward -= self.bounds_penalty 
+
+        reward -= 0.1
+        self.previous_distances = distances_to_targets.copy()
+        return reward
 
     def _computeTerminated(self):
-        """Computes the current terminated value."""
-        # This is handled in step() method
-        return False
+        terminated = False
+        current_positions = self.pos
+        if np.all(self.targets_reached_flags):
+            terminated = True
+            if self.gui: print(f"[ALL TARGETS REACHED] Terminating episode.")
+            return terminated
+        for i in range(self.NUM_DRONES):
+            if current_positions[i, 2] < 0.05: 
+                terminated = True
+                if self.gui: print(f"[CRASH] Drone {i} crashed (z={current_positions[i, 2]:.3f})")
+                break 
+        if self.NUM_DRONES > 1 and not terminated:
+            for i in range(self.NUM_DRONES):
+                for j in range(i + 1, self.NUM_DRONES):
+                    if np.linalg.norm(current_positions[i] - current_positions[j]) < self.collision_distance:
+                        terminated = True
+                        if self.gui: print(f"[COLLISION] Drones {i} and {j} collided")
+                        break
+                if terminated: break
+        return terminated
 
     def _computeTruncated(self):
-        """Computes the current truncated value."""
-        # Episode truncated if we've exceeded maximum steps
-        if self.total_steps >= self.max_episode_steps:
-            return True, False
-        return False, False
+        num_control_steps_taken = self.step_counter // self.PYB_STEPS_PER_CTRL if self.PYB_STEPS_PER_CTRL > 0 else self.step_counter
+        
+        if num_control_steps_taken >= self.max_episode_steps:
+            if self.gui: print(f"[TIMEOUT] Episode truncated after {num_control_steps_taken} control steps (max: {self.max_episode_steps})")
+            # Gymnasium's new signature for truncated might be just a bool, or (bool, dict) for info.
+            # For SB3, usually just returning True is sufficient.
+            return True 
+        return False
 
     def _computeInfo(self):
-        """Computes the current info dict(s)."""
+        current_positions = self.pos 
         if self.current_targets is None:
-            return {}
-            
-        positions = np.array([self._getDroneStateVector(i)[0:3] for i in range(self.NUM_DRONES)])
-        distances_to_targets = np.linalg.norm(positions - self.current_targets, axis=1)
+            distances_to_targets = np.full(self.NUM_DRONES, np.inf)
+        else:
+            distances_to_targets = np.linalg.norm(current_positions - self.current_targets, axis=1)
         
-        return {
-            'current_targets': self.current_targets.copy(),
+        if self.targets_reached_flags is None: 
+            self.targets_reached_flags = np.zeros(self.NUM_DRONES, dtype=bool)
+
+        episode_success = np.all(self.targets_reached_flags)
+        info = {
+            'current_targets': self.current_targets.copy() if self.current_targets is not None else np.array([]),
             'target_radius': self.current_target_radius,
             'total_episodes': self.total_episodes,
             'success_rate_last_100': np.mean(self.episode_results) if len(self.episode_results) > 0 else 0.0,
             'distance_to_targets': distances_to_targets.copy(),
-            'min_distance_to_target': np.min(distances_to_targets),
+            'min_distance_to_target': np.min(distances_to_targets) if distances_to_targets.size > 0 else np.inf,
+            'episode_success': episode_success, 
+            'targets_reached_flags': self.targets_reached_flags.copy(),
+            'num_targets_reached': np.sum(self.targets_reached_flags),
         }
+        return info
 
-
-# Test the environment with adaptive difficulty and soft rewards
-if __name__ == "__main__":
-    print("Testing MultiTargetAviary with ADAPTIVE DIFFICULTY and SOFT REWARDS...")
-    
+# Test the environment
+if __name__ == "__main__": # pragma: no cover
+    print("Testing MultiTargetAviary with KIN_DEPTH observations...")
+    try:
+        from gym_pybullet_drones.utils.enums import ObservationType
+        if not hasattr(ObservationType, 'KIN_DEPTH'): raise ImportError("KIN_DEPTH not defined in imported ObservationType")
+    except ImportError:
+        from enum import Enum
+        class ObservationType(Enum): KIN = "kin"; RGB = "rgb"; KIN_DEPTH = "kin_depth"
+#python train_multi_td3.py --algorithm ppo --num_drones 1 --features_dim 32  --num_vec_envs 4
     env = MultiTargetAviary(
-        num_drones=1,
-        obs=ObservationType.KIN,
-        act=ActionType.RPM,
-        gui=False,
-        episode_length_sec=3.0,
-        target_radius_start=0.1,
-        target_radius_max=1.0,
-        target_radius_increment=0.1,
-        success_threshold=0.9,
-        evaluation_window=10,  # Smaller for testing
-        lambda_distance=10.0,  # Distance improvement reward
-        lambda_angle=1.0,      # Target orientation reward
-        individual_target_reward=400.0,  # Reward for each drone reaching target
-    )
+        num_drones=1, obs=ObservationType.KIN_DEPTH, act=ActionType.RPM,
+        gui=False, record=False, episode_length_sec=3.0, ctrl_freq=30,
+        target_radius_start=0.2, target_radius_max=1.0, evaluation_window=5)
     
     print(f"Action space: {env.action_space}")
     print(f"Observation space: {env.observation_space}")
-    
-    obs, info = env.reset()
-    print(f"Observation shape: {obs.shape}")
-    print(f"Initial target radius: {info['target_radius']:.2f}")
-    
-    # Test a few episodes
-    for episode in range(5):
+    assert isinstance(env.observation_space, spaces.Dict)
+    assert "kin" in env.observation_space.spaces and "depth" in env.observation_space.spaces
+    print(f"KIN obs space shape: {env.observation_space.spaces['kin'].shape}")
+    print(f"Depth obs space shape: {env.observation_space.spaces['depth'].shape}")
+
+    for episode in range(2):
         obs, info = env.reset()
+        print(f"\n=== Episode {episode + 1}, Target: {info['current_targets'][0]}, Radius: {info['target_radius']:.2f} ===")
         episode_reward = 0
-        
-        print(f"\n=== Episode {episode + 1} ===")
-        print(f"Target radius: {info['target_radius']:.2f}")
-        print(f"Target position: {info['current_targets'][0]}")
-        
-        for step in range(env.max_episode_steps):
+        max_steps_for_ep = env.max_episode_steps # Use the calculated attribute
+        for step_num in range(max_steps_for_ep + 5): # Iterate up to max_steps
             action = env.action_space.sample()
-            obs, reward, done, truncated, info = env.step(action)
+            obs, reward, terminated, truncated, info = env.step(action) # Gymnasium returns bool for truncated
             episode_reward += reward
-            
+            done = terminated or truncated
+            if step_num % 30 == 0 or done:
+                print(f"  Step {step_num:3d} | Dist: {info.get('min_distance_to_target', -1):.3f} | Rew: {reward:6.2f} | Term: {terminated} | Trunc: {truncated} | Success: {info.get('episode_success', False)}")
             if done:
-                success = info.get('episode_success', False)
-                print(f"Episode ended at step {step + 1}: {'SUCCESS' if success else 'FAILURE'}")
-                print(f"Episode reward: {episode_reward:.1f}")
-                print(f"Success rate: {info['success_rate_last_100']:.3f}")
+                print(f"Episode ended. Total reward: {episode_reward:.2f}. Success: {info.get('episode_success')}")
                 break
-    
     env.close()
-    print("\nAdaptive difficulty test completed!")
+    print("\nMultiTargetAviary KIN_DEPTH test completed!")
