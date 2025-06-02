@@ -507,8 +507,8 @@ class BaseAviary(gym.Env):
         #         p.setCollisionFilterPair(bodyUniqueIdA=self.DRONE_IDS[i], bodyUniqueIdB=self.DRONE_IDS[j], linkIndexA=-1, linkIndexB=-1, enableCollision=0, physicsClientId=self.CLIENT)
         # # for i in range(self.NUM_DRONES):
             # p.setCollisionFilterPair(bodyUniqueIdA=self.PLANE_ID, bodyUniqueIdB=self.DRONE_IDS[i], linkIndexA=-1, linkIndexB=-1, enableCollision=0, physicsClientId=self.CLIENT)
-        if self.OBSTACLES:
-            self._addObstacles()
+        #if self.OBSTACLES:
+        #self._addObstacles()
     
     ################################################################################
 
@@ -619,6 +619,7 @@ class BaseAviary(gym.Env):
                                                  )
         rgb = np.reshape(rgb, (h, w, 4))
         dep = np.reshape(dep, (h, w))
+        #print('dep: ', dep)
         seg = np.reshape(seg, (h, w))
         return rgb, dep, seg
 

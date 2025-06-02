@@ -6,6 +6,7 @@ from collections import deque
 from gym_pybullet_drones.envs.BaseRLAviary import BaseRLAviary
 # Assuming enums are in this path or defined elsewhere accessible
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType, ImageType
+import pybullet as p
 
 # If enums.py is not provided or KIN_DEPTH is not there, define locally for now
 # This should ideally be in your global enums.py
@@ -56,6 +57,9 @@ class MultiTargetAviary(BaseRLAviary):
         crash_penalty: float = 200.0,
         bounds_penalty: float = 200.0,
         individual_target_reward: float = 400.0,
+        add_obstacles: bool = True,      # New parameter to enable/disable obstacles
+        obs_prob: float = 0.5,            # New parameter for obstacle density
+        obstacle_size: float = 0.1        # New parameter for obstacle size
     ):
         self.gui = gui
         
@@ -70,6 +74,12 @@ class MultiTargetAviary(BaseRLAviary):
         self.crash_penalty = crash_penalty
         self.bounds_penalty = bounds_penalty
         self.individual_target_reward = individual_target_reward
+        
+        # New parameters for obstacles
+        self.add_obstacles = add_obstacles
+        self.obs_prob = obs_prob
+        self.obstacle_size = obstacle_size
+        self.obstacles_info = []  # To store information about generated obstacles
         
         self.lambda_distance = lambda_distance
         self.lambda_angle = lambda_angle
@@ -89,13 +99,6 @@ class MultiTargetAviary(BaseRLAviary):
         self.first_step = True
         # Initialize targets_reached_flags early, using num_drones passed to __init__
         self.targets_reached_flags = np.zeros(num_drones, dtype=bool)
-        
-        # EPISODE_LEN_SEC is used by BaseAviary indirectly if passed, but we set it for clarity
-        # For max_episode_steps calculation, we need self.CTRL_FREQ which is set in super().__init__
-        # So, self.EPISODE_LEN_SEC must be passed to super if BaseAviary is to use it,
-        # or we calculate max_episode_steps after super init.
-        # BaseAviary does not have EPISODE_LEN_SEC as an __init__ param.
-        # We set self.EPISODE_LEN_SEC as an attribute of MultiTargetAviary.
 
         if initial_xyzs is None:
             current_initial_xyzs = self._get_initial_positions()
@@ -130,6 +133,8 @@ class MultiTargetAviary(BaseRLAviary):
         print(f"[MultiTargetAviary] Initialized with {self.OBS_TYPE.value} observations.")
         print(f"[MultiTargetAviary] Max episode steps: {self.max_episode_steps} (Duration: {self.episode_length_sec}s, Ctrl Freq: {self.CTRL_FREQ}Hz)")
         print(f"[MultiTargetAviary] Current target radius: {self.current_target_radius:.2f}m")
+        if self.add_obstacles:
+            print(f"[MultiTargetAviary] Obstacles enabled with probability: {self.obs_prob:.2f}, size: {self.obstacle_size:.2f}m")
 
     def _get_initial_positions(self):
         positions = []
@@ -151,6 +156,8 @@ class MultiTargetAviary(BaseRLAviary):
 
 
         for i in range(self.NUM_DRONES):
+            # print('=' * 100)
+            # print("NUM_DRONES: ", self.NUM_DRONES)
             while True:
                 x, y, z = np.random.uniform(-1, 1, 3)
                 ln_sq = x*x + y*y + z*z 
@@ -160,6 +167,18 @@ class MultiTargetAviary(BaseRLAviary):
                 if min_l_sq < ln_sq <= 1.0 and target_z_coord >= 0.1: # Target must be above ground
                     target = current_start_positions[i, :] + self.current_target_radius * np.array([x, y, z])
                     targets.append(target)
+                    
+                    # print('fuck ' * 20)
+                    # obstacle_id = p.loadURDF("duck_vhacd.urdf",
+                    #                     target,
+                    #                     p.getQuaternionFromEuler([0, 0, 0]),
+                    #                     globalScaling=1,
+                    #                     physicsClientId=self.CLIENT)
+                    
+                    # p.changeDynamics(obstacle_id, 
+                    #             linkIndex=-1,  # -1 refers to the base link
+                    #             mass=0,  # Setting mass to 0 makes it static
+                    #             physicsClientId=self.CLIENT)
                     break
         return np.array(targets, dtype=np.float32)
 
@@ -175,6 +194,165 @@ class MultiTargetAviary(BaseRLAviary):
                 if self.current_target_radius > old_radius + 1e-5: # Check for actual change
                     print(f"[AdaptiveDifficulty] Success rate: {success_rate:.3f}, Increased radius: {old_radius:.2f} -> {self.current_target_radius:.2f}")
                     self.episode_results.clear()
+
+    def _addObstacles(self):
+        """Add obstacles between the drone and its target"""
+        # If obstacles are not enabled, don't add any
+        # print('ok' * 200)
+        # print(self.add_obstacles, self.current_targets)
+        if not self.add_obstacles or self.current_targets is None:
+            return
+        
+        # Clear previous obstacles info
+        self.obstacles_info = []
+        
+        # For each drone, add obstacles on the path to its target
+        for i in range(self.NUM_DRONES):
+            # Get the starting position and target for this drone
+            start_pos = self.INIT_XYZS[i]
+            target_pos = self.current_targets[i]
+            
+            # Calculate the direction vector from start to target
+            direction = target_pos - start_pos
+            distance = np.linalg.norm(direction)
+            
+            # Determine the number of obstacles based on obs_prob and distance
+            # Higher obs_prob means more obstacles
+            import random
+            random_value = random.uniform(0, distance)
+            # print('-=-=' * 30)
+            # print(random_value, distance, int(random_value * 4))
+            num_obstacles = int(random_value * 4)  # Scale factor of 5 is arbitrary, adjust as needed
+            
+            # Place obstacles along the path
+            for j in range(num_obstacles):
+                # Uniform distribution along the path
+                u = np.random.uniform(0.2, 0.8)  # Avoid placing too close to start or target
+                
+                # Base position along the path
+                base_pos = start_pos + u * direction
+                
+                # Add Gaussian noise with std=0.2
+                noise = np.random.normal(0, 0.2, size=3)
+                
+                # Ensure the obstacle is not too close to the ground
+                obstacle_pos = base_pos + noise
+                obstacle_pos[2] = max(obstacle_pos[2], 0.1 + self.obstacle_size)  # Keep above ground
+                
+                # Choose random obstacle type: 0 for sphere, 1 for cube, 2 for quadrocopter
+                obstacle_type = np.random.randint(0, 3)  # Now includes quadrocopter
+                
+                rand_scale = max(0.1, 1 + np.random.normal(0, 1.0))
+                
+                if obstacle_type == 0:  # Sphere
+                    obstacle_id = p.loadURDF("sphere2.urdf",
+                                        obstacle_pos,
+                                        p.getQuaternionFromEuler([0, 0, 0]),
+                                        globalScaling=rand_scale * self.obstacle_size,
+                                        physicsClientId=self.CLIENT)
+                    self.obstacles_info.append({
+                        'id': obstacle_id,
+                        'type': 'sphere',
+                        'position': obstacle_pos.tolist(),
+                        'size': self.obstacle_size * rand_scale
+                    })
+                elif obstacle_type == 1:  # Cube
+                    obstacle_id = p.loadURDF("cube.urdf",
+                                        obstacle_pos,
+                                        p.getQuaternionFromEuler([0, 0, 0]),
+                                        globalScaling=rand_scale * self.obstacle_size * 0.5,
+                                        physicsClientId=self.CLIENT)
+                    self.obstacles_info.append({
+                        'id': obstacle_id,
+                        'type': 'cube',
+                        'position': obstacle_pos.tolist(),
+                        'size': self.obstacle_size * rand_scale * 0.5
+                    })
+                else:  # Quadrocopter (obstacle_type == 2)
+                    # Random orientation for the quadrocopter obstacle
+                    random_yaw = np.random.uniform(0, 2 * np.pi)
+                    random_pitch = np.random.uniform(-0.3, 0.3)  # Slight tilt
+                    random_roll = np.random.uniform(-0.3, 0.3)   # Slight tilt
+                    
+                    # Scale factor for quadrocopter (typically larger than other obstacles)
+                    quad_scale = rand_scale * self.obstacle_size * 2.0  # Make it more visible
+                    
+                    try:
+                        # Try different possible quadrocopter URDF files
+                        urdf_options = [
+                            "/Users/bohdan.turbal/Desktop/dipl_nw_pp/gym-pybullet-drones/gym_pybullet_drones/assets/cf2p.urdf",  # Crazyflie 2.X (most common in gym_pybullet_drones)
+                            "/Users/bohdan.turbal/Desktop/dipl_nw_pp/gym-pybullet-drones/gym_pybullet_drones/assets/racer.urdf",  # Crazyflie 2.P
+                            "/Users/bohdan.turbal/Desktop/dipl_nw_pp/gym-pybullet-drones/gym_pybullet_drones/assets/cf2x.urdf",    # HummingBird
+                            # "race.urdf"   # Racing drone
+                        ]
+                        
+                        # Try to load one of the available drone URDFs
+                        obstacle_id = None
+                        quad_urdf_used = None
+                        
+                        for urdf_file in urdf_options:
+                            try:
+                                obstacle_id = p.loadURDF(urdf_file,
+                                                    obstacle_pos,
+                                                    p.getQuaternionFromEuler([random_roll, random_pitch, random_yaw]),
+                                                    globalScaling=quad_scale,
+                                                    physicsClientId=self.CLIENT)
+                                quad_urdf_used = urdf_file
+                                break  # Successfully loaded, exit the loop
+                            except Exception as e:
+                                continue  # Try next URDF file
+                        
+                        if obstacle_id is not None:
+                            # Successfully loaded a quadrocopter obstacle
+                            self.obstacles_info.append({
+                                'id': obstacle_id,
+                                'type': 'quadrocopter',
+                                'position': obstacle_pos.tolist(),
+                                'size': rand_scale * self.obstacle_size * 2.0,  # Larger collision radius for quads
+                                'urdf_file': quad_urdf_used,
+                                'orientation': [random_roll, random_pitch, random_yaw]
+                            })
+                        else:
+                            # Fallback to cube if no quadrocopter URDF is available
+                            print("[WARNING] No quadrocopter URDF available, falling back to cube")
+                            obstacle_id = p.loadURDF("cube_small.urdf",
+                                                obstacle_pos,
+                                                p.getQuaternionFromEuler([0, 0, 0]),
+                                                globalScaling=rand_scale * self.obstacle_size * 0.5,
+                                                physicsClientId=self.CLIENT)
+                            self.obstacles_info.append({
+                                'id': obstacle_id,
+                                'type': 'cube',
+                                'position': obstacle_pos.tolist(),
+                                'size': self.obstacle_size * rand_scale * 0.5
+                            })
+                            
+                    except Exception as e:
+                        print(f"[ERROR] Failed to load quadrocopter obstacle: {e}")
+                        # Fallback to sphere
+                        obstacle_id = p.loadURDF("sphere2.urdf",
+                                            obstacle_pos,
+                                            p.getQuaternionFromEuler([0, 0, 0]),
+                                            globalScaling=rand_scale * self.obstacle_size,
+                                            physicsClientId=self.CLIENT)
+                        self.obstacles_info.append({
+                            'id': obstacle_id,
+                            'type': 'sphere',
+                            'position': obstacle_pos.tolist(),
+                            'size': self.obstacle_size * rand_scale
+                        })
+                
+                # Make the obstacle static (no physics simulation)
+                if obstacle_id is not None:
+                    p.changeDynamics(obstacle_id, 
+                                linkIndex=-1,  # -1 refers to the base link
+                                mass=0,  # Setting mass to 0 makes it static
+                                physicsClientId=self.CLIENT)
+            
+            if self.gui:
+                quad_count = sum(1 for obs in self.obstacles_info if obs['type'] == 'quadrocopter')
+                total_count = len(self.obstacles_info)
+                print(f"[MultiTargetAviary] Added {total_count} obstacles between drone {i} and target ({quad_count} quadrocopters)")
 
     def _observationSpace(self):
         base_obs_space = super()._observationSpace() 
@@ -255,8 +433,12 @@ class MultiTargetAviary(BaseRLAviary):
             return base_obs
 
     def reset(self, seed=None, options=None):
+        super_obs, super_info = super().reset(seed=seed, options=options) 
         self.total_steps = 0
         self.first_step = True
+        
+        # Clear previous obstacles info
+        self.obstacles_info = []
         
         # self.INIT_XYZS is set by BaseAviary's _housekeeping, which is called
         # during its __init__ and also at the start of its reset().
@@ -271,8 +453,9 @@ class MultiTargetAviary(BaseRLAviary):
         self.current_targets = self._generate_random_targets()
         self.targets_reached_flags = np.zeros(self.NUM_DRONES, dtype=bool)
         
-        super_obs, super_info = super().reset(seed=seed, options=options) 
-        obs = super_obs 
+        if self.add_obstacles:
+            self._addObstacles()
+
         
         # After super().reset(), self.pos is updated to the new reset positions
         current_positions_after_reset = self.pos
@@ -284,6 +467,7 @@ class MultiTargetAviary(BaseRLAviary):
         
         # Recompute info with fully reset state
         info = self._computeInfo() 
+        obs = super_obs#self._computeObs()
         
         return obs, info
 
@@ -355,16 +539,30 @@ class MultiTargetAviary(BaseRLAviary):
                         collided_this_step = True
                         break
                 if collided_this_step: break
-        # python train_multi_td3.py --algorithm ppo --num_drones 1 --features_dim 32  --num_vec_envs 4
+        
+        # Check for collisions with obstacles
+        # if self.add_obstacles and len(self.obstacles_info) > 0:
+        #     for i in range(self.NUM_DRONES):
+        #         for obstacle in self.obstacles_info:
+        #             obstacle_pos = np.array(obstacle['position'])
+        #             obstacle_size = obstacle['size']
+        #             # Collision distance depends on obstacle size
+        #             collision_threshold = self.collision_distance + obstacle_size
+        #             distance_to_obstacle = np.linalg.norm(current_pos_for_penalty_check[i] - obstacle_pos)
+        #             if distance_to_obstacle < collision_threshold:
+        #                 reward -= self.crash_penalty
+        #                 if self.gui: print(f"[OBSTACLE COLLISION] Drone {i} hit {obstacle['type']}")
+        #                 break
+
         # Timeout penalty calculation using self.max_episode_steps
         # self.step_counter is PyBullet steps, self.PYB_STEPS_PER_CTRL is step ratio
         num_control_steps_so_far = self.step_counter // self.PYB_STEPS_PER_CTRL if self.PYB_STEPS_PER_CTRL > 0 else self.step_counter
         # Check if this *current* step will be the one that meets or exceeds max_episode_steps
         if num_control_steps_so_far >= self.max_episode_steps -1 : # -1 because truncation happens *after* this step if it's the last one
              if not np.all(self.targets_reached_flags): 
-                reward -= self.bounds_penalty 
+                reward -= self.bounds_penalty / 2
 
-        reward -= 0.1
+        reward -= 0.05
         self.previous_distances = distances_to_targets.copy()
         return reward
 
@@ -375,11 +573,15 @@ class MultiTargetAviary(BaseRLAviary):
             terminated = True
             if self.gui: print(f"[ALL TARGETS REACHED] Terminating episode.")
             return terminated
+            
+        # Check for crashes with ground
         for i in range(self.NUM_DRONES):
             if current_positions[i, 2] < 0.05: 
                 terminated = True
                 if self.gui: print(f"[CRASH] Drone {i} crashed (z={current_positions[i, 2]:.3f})")
-                break 
+                break
+                
+        # Check for collisions between drones
         if self.NUM_DRONES > 1 and not terminated:
             for i in range(self.NUM_DRONES):
                 for j in range(i + 1, self.NUM_DRONES):
@@ -388,6 +590,22 @@ class MultiTargetAviary(BaseRLAviary):
                         if self.gui: print(f"[COLLISION] Drones {i} and {j} collided")
                         break
                 if terminated: break
+                
+        # Check for collisions with obstacles
+        # if self.add_obstacles and len(self.obstacles_info) > 0 and not terminated:
+        #     for i in range(self.NUM_DRONES):
+        #         for obstacle in self.obstacles_info:
+        #             obstacle_pos = np.array(obstacle['position'])
+        #             obstacle_size = obstacle['size']
+        #             # Collision distance depends on obstacle size
+        #             collision_threshold = self.collision_distance + obstacle_size
+        #             distance_to_obstacle = np.linalg.norm(current_positions[i] - obstacle_pos)
+        #             if distance_to_obstacle < collision_threshold:
+        #                 terminated = True
+        #                 if self.gui: print(f"[OBSTACLE COLLISION] Drone {i} hit {obstacle['type']} at distance {distance_to_obstacle:.3f}")
+        #                 break
+        #         if terminated: break
+                
         return terminated
 
     def _computeTruncated(self):
@@ -411,6 +629,8 @@ class MultiTargetAviary(BaseRLAviary):
             self.targets_reached_flags = np.zeros(self.NUM_DRONES, dtype=bool)
 
         episode_success = np.all(self.targets_reached_flags)
+        
+        # Basic info dictionary
         info = {
             'current_targets': self.current_targets.copy() if self.current_targets is not None else np.array([]),
             'target_radius': self.current_target_radius,
@@ -422,22 +642,46 @@ class MultiTargetAviary(BaseRLAviary):
             'targets_reached_flags': self.targets_reached_flags.copy(),
             'num_targets_reached': np.sum(self.targets_reached_flags),
         }
+        
+        # Add obstacle information if enabled
+        if self.add_obstacles:
+            # Check distances to obstacles
+            min_obstacle_distances = []
+            for i in range(self.NUM_DRONES):
+                drone_pos = current_positions[i]
+                drone_obstacle_distances = []
+                for obs in self.obstacles_info:
+                    obstacle_pos = np.array(obs['position'])
+                    distance = np.linalg.norm(drone_pos - obstacle_pos)
+                    drone_obstacle_distances.append(distance)
+                
+                min_dist = min(drone_obstacle_distances) if drone_obstacle_distances else np.inf
+                min_obstacle_distances.append(min_dist)
+            
+            info.update({
+                'obstacles': self.obstacles_info,
+                'num_obstacles': len(self.obstacles_info),
+                'min_obstacle_distances': np.array(min_obstacle_distances),
+                'min_obstacle_distance': np.min(min_obstacle_distances) if min_obstacle_distances else np.inf
+            })
+            
         return info
 
 # Test the environment
 if __name__ == "__main__": # pragma: no cover
-    print("Testing MultiTargetAviary with KIN_DEPTH observations...")
+    print("Testing MultiTargetAviary with KIN_DEPTH observations and obstacles...")
     try:
         from gym_pybullet_drones.utils.enums import ObservationType
         if not hasattr(ObservationType, 'KIN_DEPTH'): raise ImportError("KIN_DEPTH not defined in imported ObservationType")
     except ImportError:
         from enum import Enum
         class ObservationType(Enum): KIN = "kin"; RGB = "rgb"; KIN_DEPTH = "kin_depth"
-#python train_multi_td3.py --algorithm ppo --num_drones 1 --features_dim 32  --num_vec_envs 4
+
     env = MultiTargetAviary(
         num_drones=1, obs=ObservationType.KIN_DEPTH, act=ActionType.RPM,
-        gui=False, record=False, episode_length_sec=3.0, ctrl_freq=30,
-        target_radius_start=0.2, target_radius_max=1.0, evaluation_window=5)
+        gui=True, record=False, episode_length_sec=3.0, ctrl_freq=30,
+        target_radius_start=0.2, target_radius_max=1.0, evaluation_window=5,
+        add_obstacles=True, obs_prob=0.5, obstacle_size=0.1)
     
     print(f"Action space: {env.action_space}")
     print(f"Observation space: {env.observation_space}")
@@ -449,6 +693,7 @@ if __name__ == "__main__": # pragma: no cover
     for episode in range(2):
         obs, info = env.reset()
         print(f"\n=== Episode {episode + 1}, Target: {info['current_targets'][0]}, Radius: {info['target_radius']:.2f} ===")
+        print(f"Number of obstacles: {info.get('num_obstacles', 0)}")
         episode_reward = 0
         max_steps_for_ep = env.max_episode_steps # Use the calculated attribute
         for step_num in range(max_steps_for_ep + 5): # Iterate up to max_steps
@@ -457,9 +702,12 @@ if __name__ == "__main__": # pragma: no cover
             episode_reward += reward
             done = terminated or truncated
             if step_num % 30 == 0 or done:
-                print(f"  Step {step_num:3d} | Dist: {info.get('min_distance_to_target', -1):.3f} | Rew: {reward:6.2f} | Term: {terminated} | Trunc: {truncated} | Success: {info.get('episode_success', False)}")
+                print(f"  Step {step_num:3d} | Dist to target: {info.get('min_distance_to_target', -1):.3f}")
+                if 'min_obstacle_distance' in info:
+                    print(f"  Min dist to obstacle: {info.get('min_obstacle_distance', -1):.3f}")
+                print(f"  Reward: {reward:6.2f} | Term: {terminated} | Trunc: {truncated} | Success: {info.get('episode_success', False)}")
             if done:
                 print(f"Episode ended. Total reward: {episode_reward:.2f}. Success: {info.get('episode_success')}")
                 break
     env.close()
-    print("\nMultiTargetAviary KIN_DEPTH test completed!")
+    print("\nMultiTargetAviary with obstacles test completed!")

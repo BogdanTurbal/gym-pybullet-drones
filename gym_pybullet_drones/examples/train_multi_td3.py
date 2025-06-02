@@ -61,6 +61,11 @@ DEFAULT_ALGORITHM     = 'ppo'
 DEFAULT_EXTRACTOR     = 'matrix' # This will be overridden by KinDepthExtractor if obs is KIN_DEPTH
 DEFAULT_FEATURES_DIM  = 64 # For KinDepthExtractor, this is the final output dim
 
+# New default obstacle settings
+DEFAULT_ADD_OBSTACLES = True
+DEFAULT_OBS_PROB      = 0.6
+DEFAULT_OBSTACLE_SIZE = 0.2
+
 # Using existing AdaptiveDifficultyWandbCallback, ensure it handles info dict robustly.
 class AdaptiveDifficultyWandbCallback(BaseCallback):
     """Enhanced callback for adaptive difficulty system with detailed logging"""
@@ -95,6 +100,12 @@ class AdaptiveDifficultyWandbCallback(BaseCallback):
                 f'{self.algorithm}/adaptive_success_rate': success_rate, f'{self.algorithm}/adaptive_total_episodes': total_episodes,
                 f'{self.algorithm}/min_distance_to_target': info.get('min_distance_to_target', np.inf),
             }
+            
+            # Add obstacle collision metrics if available
+            if 'obstacles' in info:
+                log_data[f'{self.algorithm}/num_obstacles'] = info.get('num_obstacles', 0)
+                log_data[f'{self.algorithm}/min_obstacle_distance'] = info.get('min_obstacle_distance', np.inf)
+                
             wandb.log(log_data, step=self.num_timesteps)
             if (mean_reward_100 > self.best_mean_reward and (mean_reward_100 - self.best_mean_reward) >= self.min_reward_improvement and len(self.episode_rewards) >= 100):
                 #print('fuck')
@@ -145,14 +156,14 @@ def get_algorithm_config(algorithm: str) -> Dict[str, Any]:
         'td3': {'total_timesteps': int(1e7), 'learning_rate': 1e-4, 'buffer_size': 500_000, # Reduced buffer for faster iteration
                 'learning_starts': 10000, 'batch_size': 256, 'tau': 0.005, 'gamma': 0.98, # Adjusted gamma
                 'train_freq': 1, 'gradient_steps': 1, 'policy_delay': 2,
-                'target_policy_noise': 0.2, 'target_noise_clip': 0.5, 'eval_freq': 25000, 'n_eval_episodes': 5,}, # Increased eval_freq
+                'target_policy_noise': 0.2, 'target_noise_clip': 0.5, 'eval_freq': 5000, 'n_eval_episodes': 5,}, # Increased eval_freq
         'sac': {'total_timesteps': int(1e7), 'learning_rate': 3e-4, 'buffer_size': 500_000,
                 'learning_starts': 10000, 'batch_size': 256, 'tau': 0.005, 'gamma': 0.98, 
                 'train_freq': 1, 'gradient_steps': 1, 'ent_coef': 'auto', 'target_entropy': 'auto',
                 'eval_freq': 25000, 'n_eval_episodes': 5,},
-        'ppo': {'total_timesteps': int(1e7), 'learning_rate': 3e-3, 'n_steps': 1024, 
-                'batch_size': 128, 'n_epochs': 5, 'gamma': 0.99, 'gae_lambda': 0.95, 
-                'clip_range': 0.2, 'ent_coef': 0.001, 'eval_freq': 100000, 'n_eval_episodes': 2,}
+        'ppo': {'total_timesteps': int(1e7), 'learning_rate': 3e-4, 'n_steps': 2048, 
+                'batch_size': 128, 'n_epochs': 10, 'gamma': 0.99, 'gae_lambda': 0.95, 
+                'clip_range': 0.2, 'ent_coef': 0.0, 'eval_freq': 100000, 'n_eval_episodes': 2,}
     }
     return configs.get(algorithm.lower(), configs['td3'])
 
@@ -161,9 +172,12 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
         wandb_project: str, wandb_entity: Optional[str],
         noise_type: str = "normal", noise_std: float = 0.1,
         normalize_observations: bool = False, num_vec_envs: int = 1, # Default to 1 vec_env for Dict obs space initially
-        ctrl_freq: int = 30): # Added ctrl_freq
+        ctrl_freq: int = 30,
+        add_obstacles: bool = True,  # New parameter for obstacles
+        obs_prob: float = 0.5,        # New parameter for obstacle density
+        obstacle_size: float = 0.2):  # New parameter for obstacle size
     
-    run_name = f"{algorithm}_{DEFAULT_OBS.value}_{extractor_type if DEFAULT_OBS != ObservationType.KIN_DEPTH else 'KinDepthExt'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_name = f"{algorithm}_{DEFAULT_OBS.value}_{extractor_type if DEFAULT_OBS != ObservationType.KIN_DEPTH else 'KinDepthExt'}_{'obs' if add_obstacles else 'noobs'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     config = get_algorithm_config(algorithm)
     config.update({
@@ -172,14 +186,18 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
         'noise_type': noise_type, 'noise_std': noise_std, 'normalize_observations': normalize_observations,
         'num_vec_envs': num_vec_envs, 'adaptive_difficulty': True, 'episode_length_sec': DEFAULT_DURATION_SEC,
         'ctrl_freq': ctrl_freq,
+        'add_obstacles': add_obstacles, 'obs_prob': obs_prob, 'obstacle_size': obstacle_size,  # Add obstacle parameters
     })
     
     # Initialize WandB
     if wandb.run is not None: # Finish previous run if any
         wandb.finish()
+    tags = [algorithm.upper(), "ADAPTIVE", DEFAULT_OBS.value, f"{num_drones}-DRONE"]
+    if add_obstacles:
+        tags.append("OBSTACLES")
     wandb.init(project=wandb_project, entity=wandb_entity, name=run_name, config=config,
                sync_tensorboard=True, monitor_gym=True, save_code=True,
-               tags=[algorithm.upper(), "ADAPTIVE", DEFAULT_OBS.value, f"{num_drones}-DRONE"])
+               tags=tags)
     
     save_dir = os.path.join(output_folder, wandb.run.name if wandb.run else run_name) # Use wandb run name for save dir
     os.makedirs(save_dir, exist_ok=True)
@@ -187,14 +205,19 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
     adaptive_params = {
         'episode_length_sec': DEFAULT_DURATION_SEC, 'target_radius_start': 0.1, # Slightly larger start
         'target_radius_max': 3.0, 'target_radius_increment': 0.1, 'target_tolerance': 0.05,
-        'success_threshold': 0.9, 'evaluation_window': 100, # Smaller window for faster adaptation
+        'success_threshold': 0.8, 'evaluation_window': 100, # Smaller window for faster adaptation
         'crash_penalty': 100.0, 'bounds_penalty': 100.0, 'lambda_distance': 50.0,
-        'lambda_angle': 1.0, 'pyb_freq': 120, 'ctrl_freq': ctrl_freq, # Pass ctrl_freq
+        'lambda_angle': 0.0, 'pyb_freq': 240, 'ctrl_freq': ctrl_freq, # Pass ctrl_freq
         'individual_target_reward': 200.0, # Increased reward
+        'add_obstacles': add_obstacles,    # New obstacle parameters
+        'obs_prob': obs_prob,
+        'obstacle_size': obstacle_size,
     }
     
     print(f"\n[INFO] {algorithm.upper()} Training with {DEFAULT_OBS.value} observations.")
     print(f"[INFO] Num drones: {num_drones}, Ctrl Freq: {ctrl_freq} Hz, Episode length: {DEFAULT_DURATION_SEC:.1f}s")
+    if add_obstacles:
+        print(f"[INFO] Obstacles enabled with density: {obs_prob:.2f}, size: {obstacle_size:.2f}m")
     
     def make_env_fn():
         env = MultiTargetAviary(
@@ -236,32 +259,15 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
     extra_params_to_pop = ['total_timesteps', 'eval_freq', 'n_eval_episodes',
                            'extractor_type', # Explicitly passed
                            'features_dim',   # Explicitly passed, REMOVE FROM model_params
+                           'algorithm',      # Explicitly passed
                            'num_drones', 'obs_type', 'act_type',
                            'noise_type', 'noise_std', 'normalize_observations',
-                           'num_vec_envs', 'adaptive_difficulty', 'episode_length_sec', 'ctrl_freq']
+                           'num_vec_envs', 'adaptive_difficulty', 'episode_length_sec', 'ctrl_freq',
+                           'add_obstacles', 'obs_prob', 'obstacle_size']  # Remove obstacle params
     for p in extra_params_to_pop: model_params.pop(p, None) # features_dim will now be popped
 
     if action_noise: model_params["action_noise"] = action_noise
     
-    # The 'algorithm' argument for create_multiagent_model is positional in its definition,
-    # but it's better to pass it as a keyword arg for clarity if changing order.
-    # However, the current definition in multi_agent_extractors_td3.py has it as the second arg after env.
-    # So, ensure the `algorithm` argument is also not in `model_params` if it's passed positionally or explicitly.
-    # It's already in extra_params_to_pop via 'algorithm': algorithm in config update. Let's check.
-    # The config update has 'algorithm': algorithm, but extra_params_to_pop does not list 'algorithm'.
-    # Let's add 'algorithm' to extra_params_to_pop as well.
-
-    # Corrected extra_params_to_pop:
-    extra_params_to_pop = ['total_timesteps', 'eval_freq', 'n_eval_episodes',
-                           'extractor_type', # Explicitly passed
-                           'features_dim',   # Explicitly passed
-                           'algorithm',      # Explicitly passed
-                           'num_drones', 'obs_type', 'act_type',
-                           'noise_type', 'noise_std', 'normalize_observations',
-                           'num_vec_envs', 'adaptive_difficulty', 'episode_length_sec', 'ctrl_freq']
-    for p in extra_params_to_pop: model_params.pop(p, None)
-
-
     model = create_multiagent_model(
         train_env, # env
         algorithm=algorithm, # algorithm kwarg
@@ -275,7 +281,7 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
     total_params = sum(p.numel() for p in model.policy.parameters())
     print(f"\n[INFO] Model created: {algorithm.upper()} with {total_params:,} parameters.")
     
-    wandb_cb = AdaptiveDifficultyWandbCallback(algorithm=algorithm, log_freq=1000, save_freq=config.get('eval_freq', 100000) * 2, verbose=1) # Save less frequently than eval
+    wandb_cb = AdaptiveDifficultyWandbCallback(algorithm=algorithm, log_freq=100, save_freq=config.get('eval_freq', 5000) * 2, verbose=1) # Save less frequently than eval
     eval_cb = EvalCallback(eval_env, best_model_save_path=os.path.join(save_dir, 'best_model/'),
                            log_path=os.path.join(save_dir, 'eval_logs/'), eval_freq=config['eval_freq'],
                            n_eval_episodes=config['n_eval_episodes'], deterministic=True, render=False, verbose=1)
@@ -288,6 +294,9 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
         'setup/features_dim': features_dim, 'setup/total_parameters': total_params,
         'setup/adaptive_start_radius': adaptive_params['target_radius_start'],
         'setup/adaptive_max_radius': adaptive_params['target_radius_max'],
+        'setup/obstacles_enabled': add_obstacles,
+        'setup/obstacle_probability': obs_prob if add_obstacles else 0,
+        'setup/obstacle_size': obstacle_size if add_obstacles else 0,
     })
     
     print(f"\n[INFO] Starting {algorithm.upper()} training for {config['total_timesteps']} timesteps...")
@@ -342,6 +351,8 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
                 ep_start_time = time.time()
                 episode_reward = 0
                 print(f"\n[DEMO {demo_episode + 1}] Target radius: {info['target_radius']:.2f}, Target: {info['current_targets'][0]}")
+                if add_obstacles:
+                    print(f"[DEMO {demo_episode + 1}] Obstacles: {info.get('num_obstacles', 0)}")
                 
                 max_demo_steps = int(demo_env.EPISODE_LEN_SEC * demo_env.CTRL_FREQ)
                 for i in range(max_demo_steps + 50): # Run a bit longer
@@ -357,7 +368,8 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
                     
                     if i % 30 == 0:
                         min_dist = info.get('min_distance_to_target', np.inf)
-                        print(f"Demo Step {i:3d} | Dist: {min_dist:.3f} | Reward: {reward:.2f}")
+                        obs_dist = info.get('min_obstacle_distance', np.inf) if add_obstacles else np.inf
+                        print(f"Demo Step {i:3d} | Target Dist: {min_dist:.3f} | Obstacle Dist: {obs_dist:.3f} | Reward: {reward:.2f}")
                     
                     done = terminated or truncated[0] if isinstance(truncated, tuple) else truncated
                     if done:
@@ -387,6 +399,11 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_project', default='drone-adaptive-kin-depth', type=str)
     parser.add_argument('--wandb_entity', default=None, type=str) # Your WandB username or team
     
+    # New obstacle parameters
+    parser.add_argument('--add_obstacles', default=DEFAULT_ADD_OBSTACLES, type=str2bool, help='Whether to add obstacles between drone and target')
+    parser.add_argument('--obs_prob', default=DEFAULT_OBS_PROB, type=float, help='Probability/density of obstacles')
+    parser.add_argument('--obstacle_size', default=DEFAULT_OBSTACLE_SIZE, type=float, help='Size of obstacles')
+    
     args = parser.parse_args()
 
     if args.num_drones != 1 and DEFAULT_OBS == ObservationType.KIN_DEPTH:
@@ -408,4 +425,5 @@ if __name__ == '__main__':
         extractor_type=args.extractor_type, features_dim=args.features_dim, num_drones=args.num_drones,
         wandb_project=args.wandb_project, wandb_entity=args.wandb_entity, noise_type=args.noise_type,
         noise_std=args.noise_std, normalize_observations=False, # Keep False for Dict obs
-        num_vec_envs=args.num_vec_envs, ctrl_freq=args.ctrl_freq)
+        num_vec_envs=args.num_vec_envs, ctrl_freq=args.ctrl_freq,
+        add_obstacles=args.add_obstacles, obs_prob=args.obs_prob, obstacle_size=args.obstacle_size)
