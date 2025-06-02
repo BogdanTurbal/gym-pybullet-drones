@@ -150,6 +150,9 @@ class MultiTargetAviary(BaseRLAviary):
         targets = []
         # Use self.INIT_XYZS from BaseAviary as the definitive start positions after reset/init
         current_start_positions = self.INIT_XYZS 
+        
+        
+        
         if current_start_positions is None: # Should not happen after BaseAviary._housekeeping
             print("[WARNING] self.INIT_XYZS is None in _generate_random_targets. Falling back.")
             current_start_positions = self._get_initial_positions()
@@ -161,10 +164,12 @@ class MultiTargetAviary(BaseRLAviary):
             while True:
                 x, y, z = np.random.uniform(-1, 1, 3)
                 ln_sq = x*x + y*y + z*z 
-                min_l_sq = (0.05 / self.current_target_radius) ** 2 #if self.current_target_radius > 0.001 else 0 # Avoid division by zero
+                min_l = 0.05 / self.current_target_radius
+                
+                #min_l_sq = (0.05 / self.current_target_radius) ** 2 #if self.current_target_radius > 0.001 else 0 # Avoid division by zero
                 
                 target_z_coord = current_start_positions[i, 2] + z * self.current_target_radius
-                if min_l_sq < ln_sq <= 1.0 and target_z_coord >= 0.1: # Target must be above ground
+                if min_l < ln_sq <= 1.0 and target_z_coord >= 0.2: # Target must be above ground
                     target = current_start_positions[i, :] + self.current_target_radius * np.array([x, y, z])
                     targets.append(target)
                     
@@ -358,7 +363,7 @@ class MultiTargetAviary(BaseRLAviary):
         base_obs_space = super()._observationSpace() 
         if self.OBS_TYPE == ObservationType.KIN_DEPTH:
             original_kin_space = base_obs_space.spaces["kin"]
-            target_features_per_drone_kin = 6
+            target_features_per_drone_kin = 4
             if self.NUM_DRONES == 1:
                 new_kin_dim = original_kin_space.shape[0] + target_features_per_drone_kin
                 new_kin_low = np.concatenate([original_kin_space.low, np.full(target_features_per_drone_kin, -np.inf)])
@@ -406,7 +411,7 @@ class MultiTargetAviary(BaseRLAviary):
                 my_position = current_kin_obs[i, 0:drone_pos_idx_end] if self.NUM_DRONES > 1 and current_kin_obs.ndim == 2 else current_kin_obs[0:drone_pos_idx_end]
                 my_target = self.current_targets[i]
                 relative_target = my_target - my_position
-                target_obs_features = np.array([my_target[0], my_target[1], my_target[2], relative_target[0], relative_target[1], relative_target[2]], dtype=np.float32)
+                target_obs_features = np.array([relative_target[0], relative_target[1], relative_target[2], np.linalg.norm(relative_target)], dtype=np.float32) #my_target[0], my_target[1], my_target[2], 
                 target_info_list.append(target_obs_features)
             all_targets_info = np.array(target_info_list)
             if self.NUM_DRONES == 1:
@@ -473,6 +478,7 @@ class MultiTargetAviary(BaseRLAviary):
 
     def step(self, action):
         obs, reward_val, terminated_val, truncated_tuple, info = super().step(action)
+        #print(obs)
         # In Gymnasium, truncated is a bool, not a tuple. Info is the dict.
         # The tuple return for truncated might be from an older gym version or custom wrapper.
         # Standard Gymnasium step returns: obs, reward, terminated, truncated, info
@@ -500,7 +506,9 @@ class MultiTargetAviary(BaseRLAviary):
             distance_improvements = self.previous_distances - distances_to_targets
             for i in range(self.NUM_DRONES):
                 if not self.targets_reached_flags[i]: 
-                    reward += self.lambda_distance * distance_improvements[i]
+                    reward += self.lambda_distance * distance_improvements[i] #/ self.current_target_radius
+                    #reward += - distances_to_targets ** 2
+                    #reward += -distances_to_targets ** 2
         
         angle_reward_sum = 0.0
         for i in range(self.NUM_DRONES):
@@ -513,22 +521,27 @@ class MultiTargetAviary(BaseRLAviary):
                     target_direction_xy /= target_direction_norm
                     drone_forward_xy = np.array([np.cos(drone_yaw), np.sin(drone_yaw)])
                     alignment = np.dot(drone_forward_xy, target_direction_xy)
-                    normalized_alignment = (alignment + 1) / 2 
+                    normalized_alignment = alignment
+                    #normalized_alignment = (alignment + 1) / 2 
                     angle_reward_sum += self.lambda_angle * normalized_alignment
         reward += angle_reward_sum
 
-        targets_newly_reached_this_step = (distances_to_targets < self.target_tolerance) & ~self.targets_reached_flags
+        targets_newly_reached_this_step = (distances_to_targets < self.target_tolerance) #& ~self.targets_reached_flags
         for i in range(self.NUM_DRONES):
             if targets_newly_reached_this_step[i]:
                 reward += self.individual_target_reward
                 self.targets_reached_flags[i] = True 
-                if self.gui: print(f"[TARGET REACHED] Drone {i} distance: {distances_to_targets[i]:.3f}")
+                #print(f"[TARGET REACHED] Drone {i} distance: {distances_to_targets[i]:.3f}")
         
         current_pos_for_penalty_check = self.pos 
         for i in range(self.NUM_DRONES):
-            if current_pos_for_penalty_check[i, 2] < 0.05: 
+            if current_pos_for_penalty_check[i, 2] < 0.1: 
                 reward -= self.crash_penalty 
                 break 
+            
+            if np.linalg.norm(current_pos_for_penalty_check) > 5:
+                reward -= self.bounds_penalty
+                break
         
         if self.NUM_DRONES > 1:
             collided_this_step = False
@@ -560,7 +573,7 @@ class MultiTargetAviary(BaseRLAviary):
         # Check if this *current* step will be the one that meets or exceeds max_episode_steps
         if num_control_steps_so_far >= self.max_episode_steps -1 : # -1 because truncation happens *after* this step if it's the last one
              if not np.all(self.targets_reached_flags): 
-                reward -= self.bounds_penalty / 2
+                reward -= self.bounds_penalty 
 
         reward -= 0.05
         self.previous_distances = distances_to_targets.copy()
@@ -576,9 +589,13 @@ class MultiTargetAviary(BaseRLAviary):
             
         # Check for crashes with ground
         for i in range(self.NUM_DRONES):
-            if current_positions[i, 2] < 0.05: 
+            if current_positions[i, 2] < 0.1: 
                 terminated = True
                 if self.gui: print(f"[CRASH] Drone {i} crashed (z={current_positions[i, 2]:.3f})")
+                break
+            if np.linalg.norm(self.pos) > 5:
+                #reward -= self.bounds_penalty
+                terminated = True
                 break
                 
         # Check for collisions between drones

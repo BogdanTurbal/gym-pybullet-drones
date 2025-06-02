@@ -2,6 +2,7 @@
 """
 train_multi_td3.py - Multi-algorithm training script with ADAPTIVE DIFFICULTY
 Optimized for single drone with increasing challenge, supports KIN_DEPTH obs.
+Now includes DDPG algorithm support.
 """
 import os
 import time
@@ -12,7 +13,7 @@ import gymnasium as gym # Changed from gym to gymnasium
 import wandb
 import torch
 from typing import Optional, Dict, Any
-from stable_baselines3 import TD3, SAC, PPO
+from stable_baselines3 import TD3, SAC, PPO, DDPG
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import EvalCallback, CallbackList, BaseCallback
 from stable_baselines3.common.evaluation import evaluate_policy
@@ -53,7 +54,7 @@ except ImportError:
 DEFAULT_GUI           = False # Typically False for training
 DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'results'
-DEFAULT_OBS           = ObservationType.KIN_DEPTH # Changed to KIN_DEPTH
+DEFAULT_OBS           = ObservationType.KIN # Changed to KIN_DEPTH
 DEFAULT_ACT           = ActionType.RPM 
 DEFAULT_DRONES        = 1 # Focus on single drone for adaptive KIN_DEPTH
 DEFAULT_DURATION_SEC  = 6.0 # Increased for more learning time per ep
@@ -62,7 +63,7 @@ DEFAULT_EXTRACTOR     = 'matrix' # This will be overridden by KinDepthExtractor 
 DEFAULT_FEATURES_DIM  = 64 # For KinDepthExtractor, this is the final output dim
 
 # New default obstacle settings
-DEFAULT_ADD_OBSTACLES = True
+DEFAULT_ADD_OBSTACLES = False
 DEFAULT_OBS_PROB      = 0.6
 DEFAULT_OBSTACLE_SIZE = 0.2
 
@@ -77,7 +78,7 @@ class AdaptiveDifficultyWandbCallback(BaseCallback):
         self.episode_lengths = []; self.episode_successes = []; self.current_episode_reward = 0
         self.current_episode_length = 0; self.best_mean_reward = -np.inf; self.models_saved = 0
         self.target_radius_history = []; self.success_rate_history = []
-        self.is_off_policy = algorithm.lower() in ['td3', 'sac']
+        self.is_off_policy = algorithm.lower() in ['td3', 'sac', 'ddpg']  # Added DDPG to off-policy algorithms
         if verbose > 0: print(f"[AdaptiveDifficultyCallback] Initialized for {self.algorithm}, Off-policy: {self.is_off_policy}")
     def _on_step(self) -> bool:
         reward = self.locals.get('rewards', [0])[0]
@@ -157,16 +158,19 @@ def get_algorithm_config(algorithm: str) -> Dict[str, Any]:
                 'learning_starts': 10000, 'batch_size': 256, 'tau': 0.005, 'gamma': 0.98, # Adjusted gamma
                 'train_freq': 1, 'gradient_steps': 1, 'policy_delay': 2,
                 'target_policy_noise': 0.2, 'target_noise_clip': 0.5, 'eval_freq': 5000, 'n_eval_episodes': 5,}, # Increased eval_freq
+        'ddpg': {'total_timesteps': int(1e7), 'learning_rate': 1e-4, 'buffer_size': 500_000,
+                'learning_starts': 10000, 'batch_size': 256, 'tau': 0.005, 'gamma': 0.98,
+                'train_freq': 1, 'gradient_steps': 1, 'eval_freq': 5000, 'n_eval_episodes': 5,},
         'sac': {'total_timesteps': int(1e7), 'learning_rate': 3e-4, 'buffer_size': 500_000,
                 'learning_starts': 10000, 'batch_size': 256, 'tau': 0.005, 'gamma': 0.98, 
                 'train_freq': 1, 'gradient_steps': 1, 'ent_coef': 'auto', 'target_entropy': 'auto',
                 'eval_freq': 25000, 'n_eval_episodes': 5,},
-        'ppo': {'total_timesteps': int(1e7), 'learning_rate': 1e-3, 'n_steps': 2048 // 4, 
-                'batch_size': 128 // 4, 'n_epochs': 10, 'gamma': 0.98, 'gae_lambda': 0.95, 
-                'clip_range': 0.2, 'ent_coef': 0.0, 'eval_freq': 100000, 'n_eval_episodes': 2,}
+        'ppo': {'total_timesteps': int(1e7), 'learning_rate': 3e-3, 'n_steps': 2048, 
+                'batch_size': 128, 'n_epochs': 10, 'gamma': 0.99, 'gae_lambda': 0.95, 
+                'clip_range': 0.2, 'ent_coef': 0.001, 'eval_freq': 100000, 'n_eval_episodes': 2,}
     }
     return configs.get(algorithm.lower(), configs['td3'])
-
+#python train_multi_td3.py --algorithm ddpg --num_drones 1 --features_dim 32  --num_vec_envs 4 --ctrl_freq 40
 def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
         extractor_type: str, features_dim: int, num_drones: int,
         wandb_project: str, wandb_entity: Optional[str],
@@ -205,10 +209,10 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
     adaptive_params = {
         'episode_length_sec': DEFAULT_DURATION_SEC, 'target_radius_start': 0.1, # Slightly larger start
         'target_radius_max': 3.0, 'target_radius_increment': 0.1, 'target_tolerance': 0.05,
-        'success_threshold': 0.8, 'evaluation_window': 100, # Smaller window for faster adaptation
-        'crash_penalty': 100.0, 'bounds_penalty': 100.0, 'lambda_distance': 50.0,
-        'lambda_angle': 0.0, 'pyb_freq': 240, 'ctrl_freq': ctrl_freq, # Pass ctrl_freq
-        'individual_target_reward': 200.0, # Increased reward
+        'success_threshold': 0.9, 'evaluation_window': 100, # Smaller window for faster adaptation
+        'crash_penalty': 400.0, 'bounds_penalty': 100.0, 'lambda_distance': 20, #100.0,
+        'lambda_angle': 1, 'pyb_freq': 240, 'ctrl_freq': ctrl_freq, # Pass ctrl_freq
+        'individual_target_reward': 400.0, # Increased reward
         'add_obstacles': add_obstacles,    # New obstacle parameters
         'obs_prob': obs_prob,
         'obstacle_size': obstacle_size,
@@ -249,8 +253,8 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
     print(f"\n[INFO] Training Env Action space: {train_env.action_space}")
     print(f"[INFO] Training Env Observation space: {train_env.observation_space}")
     
-    # Action noise for TD3/SAC
-    action_noise = create_action_noise(train_env, noise_type, noise_std) if algorithm.lower() in ['td3', 'sac'] else None
+    # Action noise for TD3/SAC/DDPG
+    action_noise = create_action_noise(train_env, noise_type, noise_std) if algorithm.lower() in ['td3', 'sac', 'ddpg'] else None
     
     # Model creation
     model_params = config.copy()
@@ -384,7 +388,7 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Adaptive difficulty drone training with KIN_DEPTH')
-    parser.add_argument('--algorithm', default=DEFAULT_ALGORITHM, choices=['td3', 'sac', 'ppo'], type=str)
+    parser.add_argument('--algorithm', default=DEFAULT_ALGORITHM, choices=['td3', 'sac', 'ppo', 'ddpg'], type=str, help='Reinforcement learning algorithm to use')
     parser.add_argument('--num_drones', default=DEFAULT_DRONES, type=int) # Should be 1 for KIN_DEPTH focus
     parser.add_argument('--gui', default=DEFAULT_GUI, type=str2bool)
     parser.add_argument('--record_video', default=DEFAULT_RECORD_VIDEO, type=str2bool)

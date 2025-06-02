@@ -28,7 +28,7 @@ class BaseRLAviary(BaseAviary):
                  ):
         """Initialization of a generic single and multi-agent RL environment."""
         
-        self.ACTION_BUFFER_SIZE = 2 #2 #min(int(ctrl_freq // 2), 6) if ctrl_freq >=2 else 1 # ensure > 0
+        self.ACTION_BUFFER_SIZE = 0 #int(10/2)#0 #2 #min(int(ctrl_freq // 2), 6) if ctrl_freq >=2 else 1 # ensure > 0
         self.action_buffer = deque(maxlen=self.ACTION_BUFFER_SIZE)
         
         self.OBS_TYPE = obs
@@ -253,7 +253,7 @@ class BaseRLAviary(BaseAviary):
             # Depth part (H, W, C) - C=1 for depth
             # Using float for depth as in VisionAviary example and BaseAviary storage
             depth_img_shape = (self.IMG_RES[1], self.IMG_RES[0], 1)
-            depth_space = spaces.Box(low=0.01, high=1000., shape=depth_img_shape, dtype=np.float32)
+            depth_space = spaces.Box(low=0.01, high=10., shape=depth_img_shape, dtype=np.float32)
 
             if self.NUM_DRONES == 1:
                 return spaces.Dict({
@@ -265,7 +265,7 @@ class BaseRLAviary(BaseAviary):
                     "kin": spaces.Box(low=np.tile(kin_low_bounds, (self.NUM_DRONES,1)), 
                                       high=np.tile(kin_high_bounds, (self.NUM_DRONES,1)), 
                                       dtype=np.float32),
-                    "depth": spaces.Box(low=0.01, high=1000., 
+                    "depth": spaces.Box(low=0.01, high=10., 
                                         shape=(self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0], 1), 
                                         dtype=np.float32)
                 })

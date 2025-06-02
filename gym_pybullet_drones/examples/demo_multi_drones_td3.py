@@ -35,7 +35,7 @@ from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 DEFAULT_GUI           = True
 DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'demo_results'
-DEFAULT_OBS           = ObservationType.KIN_DEPTH
+DEFAULT_OBS           = ObservationType.KIN
 DEFAULT_ACT           = ActionType('rpm')
 DEFAULT_DRONES        = 1
 DEFAULT_DURATION_SEC  = 6.0
@@ -596,7 +596,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
     # Adaptive difficulty hyperparameters with OBSTACLES ENABLED
     adaptive_params = {
         'episode_length_sec': DEFAULT_DURATION_SEC,
-        'target_radius_start': 0.5,
+        'target_radius_start': 1.0,
         'target_radius_max': 3.0,
         'target_radius_increment': 0.1,
         'target_tolerance': 0.05,
@@ -605,7 +605,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
         'crash_penalty': 200.0,
         'bounds_penalty': 200.0,
         'ctrl_freq': 40,
-        'pyb_freq': 120,
+        'pyb_freq': 240,
         # NEW: OBSTACLE PARAMETERS - SET TO MAXIMUM DIFFICULTY
         'add_obstacles': True,        # Enable obstacles
         'obs_prob': 1.0,             # Maximum obstacle density as requested
@@ -727,16 +727,18 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
             else:
                 obs = reset_result
                 info = {}
-            
-            # Set custom target for demo - challenging position with obstacles in the way
-            if demo_vec_env:
-                # For vectorized environments, we need to access the underlying environment
-                if hasattr(demo_vec_env, 'venv') and hasattr(demo_vec_env.venv, 'envs'):
-                    demo_vec_env.venv.envs[0].current_targets = demo_vec_env.venv.envs[0].start_positions + np.array([[-2.0, -2.0, -0.25]])
-                elif hasattr(demo_vec_env, 'envs'):
-                    demo_vec_env.envs[0].current_targets = demo_vec_env.envs[0].start_positions + np.array([[-2.0, -2.0, -0.25]])
-            else:
-                env_for_demo.current_targets = env_for_demo.start_positions + np.array([[-2.0, -2.0, -0.25]])
+                
+            #print(demo_vec_env.venv.envs[0].current_targets )
+            # delta_target = np.array([[2.0, 2, 2]])
+            # # Set custom target for demo - challenging position with obstacles in the way
+            # if demo_vec_env:
+            #     # For vectorized environments, we need to access the underlying environment
+            #     if hasattr(demo_vec_env, 'venv') and hasattr(demo_vec_env.venv, 'envs'):
+            #         demo_vec_env.venv.envs[0].current_targets = demo_vec_env.venv.envs[0].start_positions + delta_target
+            #     elif hasattr(demo_vec_env, 'envs'):
+            #         demo_vec_env.envs[0].current_targets = demo_vec_env.envs[0].start_positions + delta_target
+            # else:
+            #     env_for_demo.current_targets = env_for_demo.start_positions + delta_target
             
             # Get initial info if missing
             if not info or 'target_radius' not in info:
@@ -770,7 +772,8 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
                 print(f"[INFO] Target position: {info['current_targets'][0]}")
             if 'num_obstacles' in info:
                 print(f"[INFO] Number of obstacles: {info['num_obstacles']}")
-            
+            print(env_for_demo.current_targets, env_for_demo.pos)
+            #env_for_demo.current_targets = 
             # Main demonstration loop
             for i in range(max_steps + 50):  # Add buffer steps
                 try:

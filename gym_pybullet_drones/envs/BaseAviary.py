@@ -133,7 +133,7 @@ class BaseAviary(gym.Env):
             os.makedirs(os.path.dirname(self.ONBOARD_IMG_PATH), exist_ok=True)
         self.VISION_ATTR = vision_attributes
         if self.VISION_ATTR:
-            self.IMG_RES = np.array([48, 48])
+            self.IMG_RES = np.array([8, 6])
             self.IMG_FRAME_PER_SEC = 10
             self.IMG_CAPTURE_FREQ = int(self.PYB_FREQ/self.IMG_FRAME_PER_SEC)
             self.rgb = np.zeros(((self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0], 4)))
@@ -597,7 +597,7 @@ class BaseAviary(gym.Env):
             exit()
         rot_mat = np.array(p.getMatrixFromQuaternion(self.quat[nth_drone, :])).reshape(3, 3)
         #### Set target point, camera view and projection matrices #
-        target = np.dot(rot_mat,np.array([1000, 0, 0])) + np.array(self.pos[nth_drone, :])
+        target = np.dot(rot_mat,np.array([10, 0, 0])) + np.array(self.pos[nth_drone, :])
         DRONE_CAM_VIEW = p.computeViewMatrix(cameraEyePosition=self.pos[nth_drone, :]+np.array([0, 0, self.L]),
                                              cameraTargetPosition=target,
                                              cameraUpVector=[0, 0, 1],
@@ -606,7 +606,7 @@ class BaseAviary(gym.Env):
         DRONE_CAM_PRO =  p.computeProjectionMatrixFOV(fov=60.0,
                                                       aspect=1.0,
                                                       nearVal=self.L,
-                                                      farVal=1000.0
+                                                      farVal=10.0
                                                       )
         SEG_FLAG = p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX if segmentation else p.ER_NO_SEGMENTATION_MASK
         [w, h, rgb, dep, seg] = p.getCameraImage(width=self.IMG_RES[0],

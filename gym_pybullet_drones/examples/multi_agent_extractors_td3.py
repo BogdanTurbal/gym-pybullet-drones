@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, NatureCNN
-from stable_baselines3 import PPO, TD3, SAC
+from stable_baselines3 import PPO, TD3, SAC, DDPG
 # from stable_baselines3.common.policies import BasePolicy # Not directly used here
 # from stable_baselines3.td3.policies import TD3Policy # Not directly used here
 import gymnasium as gym # Changed from gym to gymnasium
@@ -42,33 +42,32 @@ class NatureCNNSmall(BaseFeaturesExtractor):
         super().__init__(observation_space, features_dim)
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
-    
-        n_input_channels = observation_space.shape[0]
+        
+        #print(observation_space.shape)
+        n_input_channels = observation_space.shape[-1] * observation_space.shape[-2]
         # for i in range(100):
         #   print(n_input_channels)
 
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 4, kernel_size=3, stride=2, padding=0),
-            nn.ReLU(),
-            nn.Conv2d(4, 8, kernel_size=3, stride=2, padding=0),
-            nn.ReLU(),
-            nn.Conv2d(8, 8, kernel_size=3, stride=2, padding=0),
-            nn.ReLU(),
             nn.Flatten(),
+            nn.Linear(n_input_channels, 128),
+            nn.LeakyReLU(0.1),
+            nn.Linear(128, features_dim),
+            nn.LeakyReLU(0.1),
         )
 
-        # Compute shape by doing one forward pass
-        with th.no_grad():
-            n_flatten = self.cnn(th.as_tensor(observation_space.sample()[None]).float()).shape[1]
+        # # Compute shape by doing one forward pass
+        # with th.no_grad():
+        #     n_flatten = self.cnn(th.as_tensor(observation_space.sample()[None]).float()).shape[1]
 
-        self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
+        #self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
         # print('-------')
         # print(observations.shape)
         cnn_res = self.cnn(observations)
         # print(cnn_res.shape)
-        return self.linear(cnn_res)
+        return cnn_res#self.linear(cnn_res)
 
 
 
@@ -86,11 +85,13 @@ class KinDepthExtractor(BaseFeaturesExtractor):
 
         # KIN feature extractor (MLP)
         kin_space = observation_space.spaces["kin"]
-        kin_input_dim = kin_space.shape[0] # Assumes kin_space is (features,)
+        kin_input_dim = kin_space.shape[0] - 2 # Assumes kin_space is (features,)
         # Simple MLP for KIN, can be made more complex
         kin_feature_dim = 32 # Output dim for KIN features
         extractors["kin"] = nn.Sequential(
             nn.Linear(kin_input_dim, 64),
+            nn.LeakyReLU(0.1),
+            nn.Linear(64, 64),
             nn.LeakyReLU(0.1),
             #nn.Tanh(),
             #nn.ReLU(),
@@ -155,7 +156,7 @@ class KinDepthExtractor(BaseFeaturesExtractor):
         encoded_tensor_list = []
 
         # KIN features
-        kin_obs = observations["kin"]
+        kin_obs = observations["kin"][:, 2:]
         #return self.extractors["kin"](kin_obs)
         # If kin_obs is (batch_size, num_drones, kin_dim) for multi-drone, flatten num_drones for MLP
         # Assuming for now it's (batch_size, kin_dim) if NUM_DRONES=1 (handled by VecEnv)
@@ -172,7 +173,7 @@ class KinDepthExtractor(BaseFeaturesExtractor):
         
         # Concatenate features and pass through final FC layer
         concatenated_features = torch.cat(encoded_tensor_list, dim=1)
-        return self.fc(concatenated_features)
+        return self.fc(concatenated_features) #
 
 
 # --- Existing Extractors (MultiAgentMatrixExtractor, etc.) ---
@@ -293,7 +294,7 @@ def create_multiagent_model(
     **kwargs
 ):
     """
-    Create a model (PPO, TD3, or SAC) with custom feature extractor.
+    Create a model (PPO, TD3, SAC, or DDPG) with custom feature extractor.
     Handles Dict observation space for KIN_DEPTH.
     """
     
@@ -363,6 +364,24 @@ def create_multiagent_model(
         
         model = TD3("MultiInputPolicy", env, policy_kwargs=policy_kwargs, **default_kwargs)
         
+    elif algorithm.lower() == "ddpg":
+        # DDPG is simpler than TD3 - single critic, no policy delay, no target noise
+        # Similar structure to TD3 but fewer hyperparameters
+        
+        policy_kwargs.update({
+            # DDPG MlpPolicy also defines actor/critic internally
+            # The features_extractor's output becomes input to these networks
+        })
+        
+        default_kwargs = {
+            "learning_rate": 1e-4, "buffer_size": 1_000_000, "learning_starts": 10000,
+            "batch_size": 256, "tau": 0.005, "gamma": 0.99, "train_freq": 1,
+            "gradient_steps": 1, "action_noise": None,
+        }
+        default_kwargs.update(kwargs)
+        
+        model = DDPG("MultiInputPolicy", env, policy_kwargs=policy_kwargs, **default_kwargs)
+        
     elif algorithm.lower() == "sac":
         # SAC also has MlpPolicy.
         policy_kwargs.update({
@@ -389,7 +408,8 @@ def create_multiagent_model(
             "gamma": 0.99, "gae_lambda": 0.95, "clip_range": 0.2, "ent_coef": 0.01,
         }
         default_kwargs.update(kwargs)
-        model = PPO("MultiInputPolicy", env, policy_kwargs=policy_kwargs, device='cpu', **default_kwargs) #, device='mps') # $MultiInputPolicy
+        #policy_kwargs=policy_kwargs MultiInputPolicy
+        model = PPO("MlpPolicy", env, device='cpu', **default_kwargs) #, device='mps') # $MultiInputPolicy policy_kwargs=policy_kwargs
         
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")
