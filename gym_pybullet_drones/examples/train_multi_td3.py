@@ -161,8 +161,8 @@ def get_algorithm_config(algorithm: str) -> Dict[str, Any]:
                 'learning_starts': 10000, 'batch_size': 256, 'tau': 0.005, 'gamma': 0.98, 
                 'train_freq': 1, 'gradient_steps': 1, 'ent_coef': 'auto', 'target_entropy': 'auto',
                 'eval_freq': 25000, 'n_eval_episodes': 5,},
-        'ppo': {'total_timesteps': int(1e7), 'learning_rate': 3e-4, 'n_steps': 2048, 
-                'batch_size': 128, 'n_epochs': 10, 'gamma': 0.99, 'gae_lambda': 0.95, 
+        'ppo': {'total_timesteps': int(1e7), 'learning_rate': 1e-3, 'n_steps': 2048 // 4, 
+                'batch_size': 128 // 4, 'n_epochs': 10, 'gamma': 0.98, 'gae_lambda': 0.95, 
                 'clip_range': 0.2, 'ent_coef': 0.0, 'eval_freq': 100000, 'n_eval_episodes': 2,}
     }
     return configs.get(algorithm.lower(), configs['td3'])

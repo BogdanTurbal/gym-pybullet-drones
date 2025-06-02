@@ -44,14 +44,15 @@ class NatureCNNSmall(BaseFeaturesExtractor):
         # Re-ordering will be done by pre-preprocessing or wrapper
     
         n_input_channels = observation_space.shape[0]
+        # for i in range(100):
+        #   print(n_input_channels)
+
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 8, kernel_size=3, stride=2, padding=0),
+            nn.Conv2d(n_input_channels, 4, kernel_size=3, stride=2, padding=0),
             nn.ReLU(),
-            nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=0),
+            nn.Conv2d(4, 8, kernel_size=3, stride=2, padding=0),
             nn.ReLU(),
-            nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=0),
-            nn.ReLU(),
-            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=0),
+            nn.Conv2d(8, 8, kernel_size=3, stride=2, padding=0),
             nn.ReLU(),
             nn.Flatten(),
         )
@@ -63,7 +64,11 @@ class NatureCNNSmall(BaseFeaturesExtractor):
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        return self.linear(self.cnn(observations))
+        # print('-------')
+        # print(observations.shape)
+        cnn_res = self.cnn(observations)
+        # print(cnn_res.shape)
+        return self.linear(cnn_res)
 
 
 
@@ -159,7 +164,10 @@ class KinDepthExtractor(BaseFeaturesExtractor):
         # DEPTH features
         depth_obs = observations["depth"] # Expected (batch_size, H, W, C) from env
         # Permute to (batch_size, C, H, W) for NatureCNN
+        # print('======')
+        # print(depth_obs.shape)
         depth_obs_permuted = depth_obs.permute(0, 3, 1, 2)
+        # print(depth_obs_permuted.shape)
         encoded_tensor_list.append(self.extractors["depth"](depth_obs_permuted))
         
         # Concatenate features and pass through final FC layer
@@ -381,7 +389,7 @@ def create_multiagent_model(
             "gamma": 0.99, "gae_lambda": 0.95, "clip_range": 0.2, "ent_coef": 0.01,
         }
         default_kwargs.update(kwargs)
-        model = PPO("MultiInputPolicy", env, policy_kwargs=policy_kwargs, **default_kwargs) #, device='mps') # $MultiInputPolicy
+        model = PPO("MultiInputPolicy", env, policy_kwargs=policy_kwargs, device='cpu', **default_kwargs) #, device='mps') # $MultiInputPolicy
         
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")
