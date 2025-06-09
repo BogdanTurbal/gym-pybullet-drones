@@ -13,4 +13,4 @@ If you build on RLALLMA, please cite:
 
 > Turbal B. “Multi-Agent Reinforcement Learning with Large Language Models for Complex Coordinated Instructions”, Kyiv University, 2025.  
 
-Released under the MIT License. Made with ❤️ in Ukraine.
+Released under the MIT License
