@@ -9,8 +9,4 @@ It provides a minimal, reproducible research stack for studying how language-con
 - Lightweight Gym-PyBullet-Drones simulation environment wrappers  
 - Ready-to-use configs and experiment tracking for rapid benchmarking
 
-If you build on RLALLMA, please cite:
-
-> Turbal B. “Multi-Agent Reinforcement Learning with Large Language Models for Complex Coordinated Instructions”, Kyiv University, 2025.  
-
 Released under the MIT License
