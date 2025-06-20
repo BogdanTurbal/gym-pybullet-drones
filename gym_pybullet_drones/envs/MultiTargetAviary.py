@@ -59,7 +59,8 @@ class MultiTargetAviary(BaseRLAviary):
         individual_target_reward: float = 400.0,
         add_obstacles: bool = True,      # New parameter to enable/disable obstacles
         obs_prob: float = 0.5,            # New parameter for obstacle density
-        obstacle_size: float = 0.1        # New parameter for obstacle size
+        obstacle_size: float = 0.1,        # New parameter for obstacle size
+        never_end = False
     ):
         self.gui = gui
         
@@ -90,6 +91,7 @@ class MultiTargetAviary(BaseRLAviary):
         self.current_target_radius = target_radius_start
         self.episode_results = deque(maxlen=evaluation_window)
         self.total_episodes = 0
+        self.never_end = never_end
         
         self.total_steps = 0
         self.current_targets = None 
@@ -135,7 +137,7 @@ class MultiTargetAviary(BaseRLAviary):
         print(f"[MultiTargetAviary] Current target radius: {self.current_target_radius:.2f}m")
         if self.add_obstacles:
             print(f"[MultiTargetAviary] Obstacles enabled with probability: {self.obs_prob:.2f}, size: {self.obstacle_size:.2f}m")
-
+            
     def _get_initial_positions(self):
         positions = []
         for i in range(self.NUM_DRONES): 
@@ -365,9 +367,9 @@ class MultiTargetAviary(BaseRLAviary):
             original_kin_space = base_obs_space.spaces["kin"]
             target_features_per_drone_kin = 4
             if self.NUM_DRONES == 1:
-                new_kin_dim = original_kin_space.shape[0] + target_features_per_drone_kin
-                new_kin_low = np.concatenate([original_kin_space.low, np.full(target_features_per_drone_kin, -np.inf)])
-                new_kin_high = np.concatenate([original_kin_space.high, np.full(target_features_per_drone_kin, np.inf)])
+                new_kin_dim = original_kin_space.shape[0] + target_features_per_drone_kin -2
+                new_kin_low = np.concatenate([original_kin_space.low[2:], np.full(target_features_per_drone_kin, -np.inf)])
+                new_kin_high = np.concatenate([original_kin_space.high[2:], np.full(target_features_per_drone_kin, np.inf)])
                 augmented_kin_space = spaces.Box(low=new_kin_low, high=new_kin_high, dtype=np.float32)
             else: 
                 new_kin_dim_per_agent = original_kin_space.shape[1] + target_features_per_drone_kin
@@ -384,9 +386,9 @@ class MultiTargetAviary(BaseRLAviary):
             original_kin_space = base_obs_space
             target_features_kin = 6 
             if self.NUM_DRONES == 1:
-                new_dim = original_kin_space.shape[0] + target_features_kin
-                new_low = np.concatenate([original_kin_space.low, np.full(target_features_kin, -np.inf)])
-                new_high = np.concatenate([original_kin_space.high, np.full(target_features_kin, np.inf)])
+                new_dim = original_kin_space.shape[0] + target_features_kin - 2
+                new_low = np.concatenate([original_kin_space.low[2:], np.full(target_features_kin, -np.inf)])
+                new_high = np.concatenate([original_kin_space.high[2:], np.full(target_features_kin, np.inf)])
                 return spaces.Box(low=new_low, high=new_high, dtype=np.float32)
             else: 
                 new_dim_per_agent = original_kin_space.shape[1] + target_features_kin
@@ -404,7 +406,7 @@ class MultiTargetAviary(BaseRLAviary):
              self.current_targets = self._generate_random_targets()
 
         if self.OBS_TYPE == ObservationType.KIN_DEPTH:
-            current_kin_obs = base_obs["kin"] 
+            current_kin_obs = base_obs["kin"]#[#:, 2:] 
             target_info_list = []
             for i in range(self.NUM_DRONES):
                 drone_pos_idx_end = 3
@@ -415,9 +417,9 @@ class MultiTargetAviary(BaseRLAviary):
                 target_info_list.append(target_obs_features)
             all_targets_info = np.array(target_info_list)
             if self.NUM_DRONES == 1:
-                augmented_kin = np.concatenate([current_kin_obs, all_targets_info[0]])
+                augmented_kin = np.concatenate([current_kin_obs[2:], all_targets_info[0]])
             else:
-                augmented_kin = np.hstack([current_kin_obs, all_targets_info])
+                augmented_kin = np.hstack([current_kin_obs[:, 2:], all_targets_info])
             return {"kin": augmented_kin.astype(np.float32), "depth": base_obs["depth"]}
         elif self.OBS_TYPE == ObservationType.KIN:
             current_kin_obs = base_obs
@@ -431,14 +433,20 @@ class MultiTargetAviary(BaseRLAviary):
                 target_info_list.append(target_obs_features)
             all_targets_info = np.array(target_info_list)
             if self.NUM_DRONES == 1:
-                return np.concatenate([current_kin_obs, all_targets_info[0]]).astype(np.float32)
+                return np.concatenate([current_kin_obs[2:], all_targets_info[0]]).astype(np.float32)
             else:
-                return np.hstack([current_kin_obs, all_targets_info]).astype(np.float32)
+                return np.hstack([current_kin_obs[:, 2:], all_targets_info]).astype(np.float32)
         else: 
             return base_obs
 
     def reset(self, seed=None, options=None):
+        p.loadURDF("samurai.urdf",
+                   physicsClientId=self.CLIENT
+                   )
         super_obs, super_info = super().reset(seed=seed, options=options) 
+        p.loadURDF("samurai.urdf",
+                   physicsClientId=self.CLIENT
+                   )
         self.total_steps = 0
         self.first_step = True
         
@@ -580,11 +588,13 @@ class MultiTargetAviary(BaseRLAviary):
         return reward
 
     def _computeTerminated(self):
+        if self.never_end:
+            return False
         terminated = False
         current_positions = self.pos
         if np.all(self.targets_reached_flags):
             terminated = True
-            if self.gui: print(f"[ALL TARGETS REACHED] Terminating episode.")
+            #if self.gui: print(f"[ALL TARGETS REACHED] Terminating episode.")
             return terminated
             
         # Check for crashes with ground
@@ -626,6 +636,8 @@ class MultiTargetAviary(BaseRLAviary):
         return terminated
 
     def _computeTruncated(self):
+        if self.never_end:
+            return False
         num_control_steps_taken = self.step_counter // self.PYB_STEPS_PER_CTRL if self.PYB_STEPS_PER_CTRL > 0 else self.step_counter
         
         if num_control_steps_taken >= self.max_episode_steps:

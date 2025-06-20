@@ -409,7 +409,7 @@ def create_multiagent_model(
         }
         default_kwargs.update(kwargs)
         #policy_kwargs=policy_kwargs MultiInputPolicy
-        model = PPO("MlpPolicy", env, device='cpu', **default_kwargs) #, device='mps') # $MultiInputPolicy policy_kwargs=policy_kwargs
+        model = PPO("MultiInputPolicy", env, device='cpu', **default_kwargs) #, device='mps') # $MultiInputPolicy policy_kwargs=policy_kwargs
         
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")

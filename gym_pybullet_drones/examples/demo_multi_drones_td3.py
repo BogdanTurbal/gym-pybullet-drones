@@ -572,7 +572,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
         print(f"[ERROR] Failed to create dummy environment: {e}")
         return
     
-    freq = 40
+    freq = 20
 
     print(f"[INFO] Episode length: {DEFAULT_DURATION_SEC:.1f} seconds")
     print(f"[INFO] Control frequency: {freq} Hz")
@@ -596,15 +596,15 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
     # Adaptive difficulty hyperparameters with OBSTACLES ENABLED
     adaptive_params = {
         'episode_length_sec': DEFAULT_DURATION_SEC,
-        'target_radius_start': 1.0,
-        'target_radius_max': 3.0,
+        'target_radius_start': 3.0,
+        'target_radius_max': 5.0,
         'target_radius_increment': 0.1,
         'target_tolerance': 0.05,
         'success_threshold': 0.9,
         'evaluation_window': 100,
         'crash_penalty': 200.0,
         'bounds_penalty': 200.0,
-        'ctrl_freq': 40,
+        'ctrl_freq': 20,
         'pyb_freq': 240,
         # NEW: OBSTACLE PARAMETERS - SET TO MAXIMUM DIFFICULTY
         'add_obstacles': True,        # Enable obstacles
@@ -729,8 +729,8 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
                 info = {}
                 
             #print(demo_vec_env.venv.envs[0].current_targets )
-            # delta_target = np.array([[2.0, 2, 2]])
-            # # Set custom target for demo - challenging position with obstacles in the way
+            #delta_target = np.array([[-1, -1, -0.5]])
+            # Set custom target for demo - challenging position with obstacles in the way
             # if demo_vec_env:
             #     # For vectorized environments, we need to access the underlying environment
             #     if hasattr(demo_vec_env, 'venv') and hasattr(demo_vec_env.venv, 'envs'):
@@ -776,6 +776,7 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
             #env_for_demo.current_targets = 
             # Main demonstration loop
             for i in range(max_steps + 50):  # Add buffer steps
+                #print(i)
                 try:
                     # Get action from model
                     action, _ = model.predict(obs, deterministic=True)
@@ -793,6 +794,9 @@ def run_demonstration(model_path, output_folder, gui, record_video, plot, num_ep
                     else:
                         obs, reward, done, info = step_result
                         truncated = False
+                        
+                    # truncated = False
+                    # done = False
                     
                     # Debug info type
                     if i == 0:

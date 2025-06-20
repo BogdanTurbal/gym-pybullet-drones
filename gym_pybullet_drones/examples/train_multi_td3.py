@@ -54,7 +54,7 @@ except ImportError:
 DEFAULT_GUI           = False # Typically False for training
 DEFAULT_RECORD_VIDEO  = False
 DEFAULT_OUTPUT_FOLDER = 'results'
-DEFAULT_OBS           = ObservationType.KIN # Changed to KIN_DEPTH
+DEFAULT_OBS           = ObservationType.KIN_DEPTH # Changed to KIN_DEPTH
 DEFAULT_ACT           = ActionType.RPM 
 DEFAULT_DRONES        = 1 # Focus on single drone for adaptive KIN_DEPTH
 DEFAULT_DURATION_SEC  = 6.0 # Increased for more learning time per ep
@@ -165,9 +165,9 @@ def get_algorithm_config(algorithm: str) -> Dict[str, Any]:
                 'learning_starts': 10000, 'batch_size': 256, 'tau': 0.005, 'gamma': 0.98, 
                 'train_freq': 1, 'gradient_steps': 1, 'ent_coef': 'auto', 'target_entropy': 'auto',
                 'eval_freq': 25000, 'n_eval_episodes': 5,},
-        'ppo': {'total_timesteps': int(1e7), 'learning_rate': 3e-3, 'n_steps': 2048, 
+        'ppo': {'total_timesteps': int(1e8), 'learning_rate': 3e-4, 'n_steps': 2048, 
                 'batch_size': 128, 'n_epochs': 10, 'gamma': 0.99, 'gae_lambda': 0.95, 
-                'clip_range': 0.2, 'ent_coef': 0.001, 'eval_freq': 100000, 'n_eval_episodes': 2,}
+                'clip_range': 0.1, 'ent_coef': 0.000, 'eval_freq': 100000, 'n_eval_episodes': 2,}
     }
     return configs.get(algorithm.lower(), configs['td3'])
 #python train_multi_td3.py --algorithm ddpg --num_drones 1 --features_dim 32  --num_vec_envs 4 --ctrl_freq 40
@@ -207,8 +207,8 @@ def run(algorithm: str, output_folder: str, gui: bool, record_video: bool,
     os.makedirs(save_dir, exist_ok=True)
     
     adaptive_params = {
-        'episode_length_sec': DEFAULT_DURATION_SEC, 'target_radius_start': 0.1, # Slightly larger start
-        'target_radius_max': 3.0, 'target_radius_increment': 0.1, 'target_tolerance': 0.05,
+        'episode_length_sec': DEFAULT_DURATION_SEC, 'target_radius_start': 3.0, # Slightly larger start
+        'target_radius_max': 6.0, 'target_radius_increment': 0.05, 'target_tolerance': 0.05,
         'success_threshold': 0.9, 'evaluation_window': 100, # Smaller window for faster adaptation
         'crash_penalty': 400.0, 'bounds_penalty': 100.0, 'lambda_distance': 20, #100.0,
         'lambda_angle': 1, 'pyb_freq': 240, 'ctrl_freq': ctrl_freq, # Pass ctrl_freq
