@@ -11,7 +11,7 @@ It provides a minimal, reproducible research stack for studying how language-con
 
 **Key files**
 - gym_pybullet_drones/examples/llm_orchestrated_multi_drone_demo.py, to run the demo with drones, and set commands through the command line interface after pressing the "set command" button in GUI
-- gym_pybullet_drones/examples/rlallma_evaluation.py,  evaluation of the realm
+- gym_pybullet_drones/examples/rlallma_evaluation.py,  evaluation of the RLALLMA
 
 
 Released under the MIT License
